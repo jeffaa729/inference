@@ -200,8 +200,11 @@ def main() -> None:
             if rank == 0:
                 print("fused CUDA kernel unavailable (JIT compile failed)")
         else:
-            ep_to_tp_fused, _ = _FUSED
-            name, ep_src, _, shard_dim, nbytes = cases[0]  # W13 only
+            ep_to_tp_fused, tp_to_ep_fused = _FUSED
+            name, ep_src, tp_src, shard_dim, nbytes = cases[0]  # W13 only
+            moved = nbytes * dtype.itemsize * (p - 1) / p
+
+            # EP -> TP
             ref = ep_to_tp_nccl(ep_src, p, shard_dim)
             tp_buf = torch.empty_like(ref)
             tp_peers = share_buffers(tp_buf)
@@ -209,14 +212,38 @@ def main() -> None:
             got = ep_to_tp_fused(ep_src, tp_peers, p, rank)
             dist.barrier()
             assert torch.equal(ref, got), f"fused {name} EP->TP mismatch on rank {rank}"
-
             for _ in range(args.warmup):
                 ep_to_tp_fused(ep_src, tp_peers, p, rank)
             fused_ms = timeit(lambda: ep_to_tp_fused(ep_src, tp_peers, p, rank), args.iters)
-            moved = nbytes * dtype.itemsize * (p - 1) / p
             if rank == 0:
                 print(f"{name} EP->TP  E={e} P={p}: fused CUDA {fused_ms:.3f} ms | "
                       f"BW {moved/fused_ms/1e6:.1f} GB/s")
+
+            # TP -> EP
+            ref2 = tp_to_ep_nccl(tp_src, p, shard_dim)
+            ep_buf = torch.empty_like(ref2)
+            ep_peers = share_buffers(ep_buf)
+            dist.barrier()
+            got2 = tp_to_ep_fused(tp_src, ep_peers, p, rank)
+            dist.barrier()
+            assert torch.equal(ref2, got2), f"fused {name} TP->EP mismatch on rank {rank}"
+            for _ in range(args.warmup):
+                tp_to_ep_fused(tp_src, ep_peers, p, rank)
+            fused_ms2 = timeit(lambda: tp_to_ep_fused(tp_src, ep_peers, p, rank), args.iters)
+            if rank == 0:
+                print(f"{name} TP->EP  E={e} P={p}: fused CUDA {fused_ms2:.3f} ms | "
+                      f"BW {moved/fused_ms2/1e6:.1f} GB/s")
+
+    # Release CUDA IPC peer mappings while every rank is still alive, so no
+    # rank exits while another still holds its buffer open. This avoids the
+    # "Producer process has been terminated before all shared CUDA tensors
+    # released" warning at shutdown.
+    tp_peers = ep_peers = None  # noqa: F841
+    import gc
+
+    gc.collect()
+    torch.cuda.synchronize()
+    dist.barrier()
 
     dist.destroy_process_group()
 

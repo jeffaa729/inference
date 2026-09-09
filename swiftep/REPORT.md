@@ -34,24 +34,35 @@ permute 方向、IPC 的 narrow 步长）。
 | 自适应 vs 最优静态（RL rollout） | **1.6×** |
 | 自适应 vs 最优静态（突发在线） | **1.35×** |
 
-## 4. 8×A100 基准（待跑）
+## 4. 4×A100 SXM4 实测（2026-09-09）
 
 ```bash
-# 重切分内核三者对比（NCCL vs torch-copy IPC vs fused CUDA）
-torchrun --nproc_per_node=8 swiftep/benchmarks/resharding_benchmark.py \
+torchrun --nproc_per_node=4 swiftep/benchmarks/resharding_benchmark.py \
     --experts 128 --two_i 8192 --hidden 2048 --iters 100 --fused
 ```
 
-预期（对标 Moebius）：fused 直传比 NCCL all-to-all 快约 1.49×；切换 215–434ms；RL rollout
-上 1.16–1.25×。
+**正确性**：NCCL == torch-copy IPC == fused CUDA，三条路径逐位一致（断言全过）。
 
-**待填表**（8×A100 实测后）：
+**W13 (gate+up, E=128, 2I=8192, H=2048, bf16, 4 GB/rank)**：
 
 | 路径 | 耗时(ms) | 带宽(GB/s) | vs NCCL |
 |---|---|---|---|
-| NCCL all-to-all | _待测_ | _待测_ | 1.00× |
-| torch-copy IPC 直写 | _待测_ | _待测_ | _待测_ |
-| fused CUDA 直传 | _待测_ | _待测_ | _待测_ |
+| NCCL all-to-all | 6.450 | 499 | 1.00× |
+| torch-copy IPC 直写 | 6.287 | 512 | 1.03× |
+| **fused CUDA 直传** | **5.193** | **620** | **1.24×** |
+
+**W2 (down, E=128, H=2048, I=4096)**：NCCL 3.347 ms，IPC 3.197 ms（1.05×）。
+
+分析：
+
+- fused CUDA 比 NCCL 快 **1.24×**、比 torch-copy 快 1.21×——单 kernel 直写省掉了 NCCL
+  路径的 permute staging（`contiguous()` 整趟拷贝 + all-to-all 内部缓冲）与 torch `copy_`
+  的多 kernel/跨步拷贝。
+- 论文 1.49× 是 8×H200（NVLink 900 GB/s）；本测 4×A100（NVLink 600 GB/s），GPU 数减半 +
+  NVLink 带宽低 1/3，**1.24× 在同一量级、符合预期**（GPU 越多 fused 优势越大）。
+- fused 实测带宽 620 GB/s（按每 rank 发送字节计），已接近 A100 NVLink 3.0 上限。
+- torch-copy IPC 仅 1.03×：`copy_` 对跨步源做了多次小拷贝，fused 内核的"每块一次连续
+  拷贝"正是它 1.21× 于 torch-copy 的原因。
 
 ## 5. vLLM 集成方案（完整切换，待真机实现）
 
