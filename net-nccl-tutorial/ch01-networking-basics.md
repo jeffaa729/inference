@@ -65,6 +65,35 @@ NVIDIA 在 NVLink 上的宣传口径经常是「聚合」。例如 H100 的 NVLi
 在 decode 阶段（每步总时间可能只有几 ms 甚至几百 μs）会直接把 CPU 打满。RDMA 让网卡直接读走显存/内存，
 **零拷贝 + 内核旁路（kernel bypass）**，CPU 只负责下发一次门铃（doorbell）。
 
+### 1.2.1 把「延迟 vs 带宽」画出来
+
+上面那张表是「点」，这张图是「线」—— **有效带宽随消息大小变化**。
+这是面试里区分「背过概念」和「算过账」的地方：
+
+![all-reduce 有效带宽 vs 消息大小](figures/alpha-beta-bandwidth.svg)
+
+**怎么读这张图**（三条曲线都是 ring all-reduce，N=8）：
+
+| 区域 | 现象 | 原因 |
+|---|---|---|
+| **左侧（≤32 KiB）** | 曲线**陡直上升**，有效带宽极低 | **延迟项 `2(N-1)·α` 主导**，搬数据本身几乎不花时间 |
+| **中段（32 KiB – 4 MiB）** | 曲线开始变平 | 延迟项与带宽项量级相当 |
+| **右侧（≥16 MiB）** | 趋于水平，接近线速 | 带宽项主导，延迟可忽略 |
+
+**从图里能直接读出的三个结论**：
+
+1. **NVLink 上 16 KiB 的 all-reduce，有效带宽只有 ~4 GB/s**（图里的绿圈），
+   约为理论线速 450 GB/s 的 **0.9%**。所以 **decode 阶段根本不是在「传数据」，
+   而是在「付延迟」** —— 这就是 vLLM 要自研 custom all-reduce 的根本原因（ch04）。
+2. **同样 16 KiB，换成跨机 IB（橙线）要 ~70 μs，是 NVLink 的 10 倍以上**。
+   **跨机 TP 不可行不是因为带宽不够，而是因为延迟 × 步数**（§1.8.2 有详细手算）。
+3. **两条曲线的「膝盖」位置不同** —— α 越大，曲线整体越靠右下。
+   所以「小消息优化」在 NVLink 上收益更集中、也更值得做。
+
+> 📐 这张图由 `make_figures.py` 生成（纯 Python，不依赖 matplotlib），
+> `python make_figures.py` 可重新生成；改 α / 带宽参数就能画出你自己硬件的版本。
+> 用 `check_figures.py` 验证图的合法性。
+
 ---
 
 ## 1.3 术语地图：从物理层到应用层
@@ -294,6 +323,54 @@ tools/install_gdrcopy.sh "${GDRCOPY_OS_VERSION}" "12.8" "x64"
    8 张 GPU 抢 8 张网卡，或 8 张抢 1 张（这种配置一定慢）。
 3. **网卡与 GPU 的亲和性**：HCA 通常挂在某个 PCIe Switch / NUMA 下，离它近的 GPU 通信更快。
    NCCL 会尽量选近的 HCA；选错了会掉带宽。这就是 `NCCL_IB_HCA` 存在的原因。
+
+### 1.7.1 两种「8 卡互联」的对比（决定 TP 能不能用）
+
+这张图是选机器时最该看的一张 —— **同样是 8 卡，能不能做 TP 完全取决于左边的差异**：
+
+```mermaid
+flowchart TB
+    subgraph NV["有 NVSwitch：全互联，任意两卡 1 跳"]
+        direction TB
+        S["NVSwitch ×4<br/>全互联交换"]
+        G0["GPU0"]; G1["GPU1"]; G2["GPU2"]; G3["GPU3"]
+        G4["GPU4"]; G5["GPU5"]; G6["GPU6"]; G7["GPU7"]
+        S --- G0; S --- G1; S --- G2; S --- G3
+        S --- G4; S --- G5; S --- G6; S --- G7
+    end
+
+    subgraph PCIE["无 NVSwitch：PCIe Switch 分组，跨组绕 CPU"]
+        direction TB
+        SW1["PCIe Switch A"]; SW2["PCIe Switch B"]
+        P0["GPU0"]; P1["GPU1"]; P2["GPU2"]; P3["GPU3"]
+        P4["GPU4"]; P5["GPU5"]; P6["GPU6"]; P7["GPU7"]
+        CPU["CPU / NUMA 互联（SYS）"]
+        SW1 --- P0; SW1 --- P1; SW1 --- P2; SW1 --- P3
+        SW2 --- P4; SW2 --- P5; SW2 --- P6; SW2 --- P7
+        SW1 --- CPU; SW2 --- CPU
+    end
+
+    style NV fill:#eaf7ee,stroke:#2d7a3e,stroke-width:2px
+    style PCIE fill:#fdecea,stroke:#c0392b,stroke-width:2px
+```
+
+| | 左：NVLink + NVSwitch | 右：PCIe only |
+|---|---|---|
+| 任意两卡 | **1 跳**，带宽对称 | 组内 1 跳；**跨组要绕 CPU**（`SYS`） |
+| `nvidia-smi topo -m` | `NV18` 之类 | `PIX` / `PHB` / `SYS` 混着 |
+| TP 是否可行 | ✅ 教程所有结论适用 | ⚠️ 慢很多；官方建议**改用 PP** |
+| custom all-reduce | ✅ `fully_connected=True` 才会启用 | ❌ 4 卡以上直接禁用（`custom_all_reduce.py:236-242`）|
+| 该跑哪些 lab | 套餐 A/B 全套 | 只跑「验证现象」，别和 NVLink 数据对比 |
+
+**这张图直接对应两条代码判据**（ch04 会细讲）：
+
+- `current_platform.is_fully_connected(physical_device_ids)` —— 判断是不是「左图」；
+- `if same_node and world_size > 2 and not fully_connected: 禁用 custom AR` ——
+  **「右图 + ≥4 卡」直接不给用自定义 all-reduce**，因为收益不如 NCCL。
+
+> 💡 **租机时先跑 `nvidia-smi topo -m` 再决定跑什么实验** ——
+> 在「右图」的机器上跑 TP 实验，得到的数字会和教程差好几倍，容易得出错误结论。
+> `provision_rented_gpu.py` 会自动帮你判定这一点。
 
 ---
 

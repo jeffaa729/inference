@@ -107,6 +107,64 @@ EP 组（transpose(1,2) → reshape(-1, DP*PCP*TP=4)）：
 **注意 EP 组和 PP 组在这里恰好重合（都是 [0,2,4,6]）** —— 这不是巧合：
 两者的含义都是「同一个 DP 内的所有非 PP 维度」。
 
+**这张图是上面那个 reshape 的可视化**（同一个 8 卡例子，看四种组如何交叉切割）：
+
+```mermaid
+flowchart TB
+    subgraph W["world_size = 8，rank 编号 0..7"]
+        direction LR
+        r0["0"]; r1["1"]; r2["2"]; r3["3"]; r4["4"]; r5["5"]; r6["6"]; r7["7"]
+    end
+
+    subgraph TP["TP 组 = 相邻 rank（最后一维，变化最快）"]
+        direction LR
+        t1["[0,1]"]; t2["[2,3]"]; t3["[4,5]"]; t4["[6,7]"]
+    end
+
+    subgraph PP["PP 组 = transpose(2,4) 后切"]
+        direction LR
+        p1["[0,2,4,6]"]; p2["[1,3,5,7]"]
+    end
+
+    subgraph DP["DP 组 = transpose(1,4) 后切"]
+        direction LR
+        d1["[0,4]"]; d2["[1,5]"]; d3["[2,6]"]; d4["[3,7]"]
+    end
+
+    subgraph EP["EP 组 = transpose(1,2)，把 DP×PCP×TP 拉平"]
+        direction LR
+        e1["[0,2,4,6]"]; e2["[1,3,5,7]"]
+    end
+
+    W --> TP
+    W --> PP
+    W --> DP
+    W --> EP
+
+    style TP fill:#eaf2fb,stroke:#2c6fbb,stroke-width:2px
+    style EP fill:#eaf7ee,stroke:#2d7a3e,stroke-width:2px
+    style PP fill:#f4f0fa,stroke:#7a5cbb
+    style DP fill:#fdf6e3,stroke:#b8860b
+```
+
+**为什么 TP 必须是相邻 rank**（这是全篇最关键的设计约束）：
+
+```mermaid
+flowchart LR
+    A["布局顺序<br/>ExternalDP × DP × PP × PCP × <b>TP</b><br/>TP 是最后一维"] --> B["TP 组 = 编号连续的 rank"]
+    B --> C["配合部署约定：<br/>一台机器 8 卡 = rank 0..7"]
+    C --> D["<b>TP 组天然不跨机</b><br/>→ all-reduce 走 NVLink 而不是 IB"]
+    D --> E["这就是<br/>「TP 必须在 NVLink 域内」<br/>在代码里的落地"]
+
+    style A fill:#f0f0f0,stroke:#888
+    style D fill:#eaf7ee,stroke:#2d7a3e,stroke-width:2px
+    style E fill:#d4f4dd,stroke:#2d7a3e,stroke-width:2px
+```
+
+反过来看：**EP 组跨 DP×TP**，所以它**可以跨机**（这也正是 EP 能扩展到多节点的原因）。
+**一个布局顺序，同时解释了「TP 为什么不能跨机」和「EP 为什么能」。**
+
+
 ---
 
 ## 4.2 `GroupCoordinator`：vLLM 对通信的抽象层
@@ -440,6 +498,48 @@ C++ 侧（`csrc/libtorch_stable/custom_all_reduce.cu` 附近）用
 - **没有 NCCL 的协议栈开销**：不需要建连、不需要 channel 调度、不需要协议协商。
 - **一次 kernel launch 完成**：one-shot 算法下，每个 block 直接读所有 rank 的数据并求和。
 - **可以在 CUDA Graph 里捕获**：kernel 参数（对端指针）在 capture 时已固定。
+
+**把「谁在什么时候做了什么」画成时序图**（这是理解它为什么需要 IPC 的关键）：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R0 as rank 0
+    participant R1 as rank 1
+    participant Mem as 各 rank 的显存
+
+    Note over R0,R1: ① 初始化（只做一次，在 CUDA Graph capture 之前）
+    R0->>Mem: cudaMalloc 一块 IPC buffer
+    R1->>Mem: cudaMalloc 一块 IPC buffer
+    R0->>R0: cudaIpcGetMemHandle(自己的 buffer)
+    R1->>R1: cudaIpcGetMemHandle(自己的 buffer)
+    R0->>R1: all_gather_object 交换 handle（走 gloo/CPU 通道）
+    Note over R0,R1: ② 打开对端显存，把指针写进设备内存
+    R0->>Mem: cudaIpcOpenMemHandle(rank1 的 handle)
+    R1->>Mem: cudaIpcOpenMemHandle(rank0 的 handle)
+    R0->>Mem: 把【对端指针】写入 rank_data（设备内存）
+    R1->>Mem: 把【对端指针】写入 rank_data（设备内存）
+
+    Note over R0,R1: ③ 每次前向（decode 每一步都做）
+    R0->>Mem: input 拷进自己的 IPC buffer
+    R1->>Mem: input 拷进自己的 IPC buffer
+    R0->>Mem: 启动 kernel：直接 load rank1 buffer 并求和
+    R1->>Mem: 启动 kernel：直接 load rank0 buffer 并求和
+    Note over R0,R1: 用 Signal 结构做 start/end 两次 rank 间同步<br/>1 次 kernel launch，无协议栈
+```
+
+**三个设计要点（图里能看出来）**：
+
+| 观察 | 为什么这么做 |
+|---|---|
+| **handle 交换走 CPU 通道**（`all_gather_object`） | 此时 NCCL 通信器还没建好；而且 handle 是 Python 对象（「鸡生蛋」问题，见 §4.2.1） |
+| **对端指针要写进设备内存**（`rank_data`） | CUDA Graph 要求 kernel 参数在 capture 时固定，不能每次当参数传 |
+| **需要 Signal 做两次同步**（start/end） | 直读对端显存必须保证「对方已经写完、还没覆盖」 |
+
+> 第 2 点就是 `custom_all_reduce.py:281-284` 那段注释说的：
+> *"Each registered tuple contains at most 16 addresses. Allocating 8MB is enough for
+> 65536 such tuples. The largest model uses fewer than 10000 registered tuples."*
+> —— **8 MiB 的 rank_data 是按「最多 16 个地址 × 65536 组」倒推出来的。**
 
 #### CUDA Graph 的适配（这是最巧的部分）
 

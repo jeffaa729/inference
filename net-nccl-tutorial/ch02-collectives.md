@@ -79,6 +79,46 @@ T = (顺序步数) × α + (每 rank 搬运字节数) / BW_effective
 每 rank 总搬运量 = 2 × (N-1)/N × S    （S = tensor 字节数）
 ```
 
+**把两个阶段画出来**（以 N=4、数据切成 4 块 A/B/C/D 为例）：
+
+```mermaid
+flowchart LR
+    subgraph P1["阶段 1：Reduce-Scatter（N-1 = 3 步）"]
+        direction LR
+        A1["① 各 rank 把第 i 块<br/>发给下一个 rank<br/>收下并累加"] --> A2["② 环上继续流动<br/>每步每个 rank<br/>发出 1 块 / 收 1 块"] --> A3["③ 3 步后：<br/>rank i 持有【第 i 块的全量和】"]
+    end
+
+    subgraph P2["阶段 2：All-Gather（N-1 = 3 步）"]
+        direction LR
+        B1["① rank i 把已完备的<br/>第 i 块发给下一个 rank"] --> B2["② 沿环传播<br/>每步多一块变完备"] --> B3["③ 3 步后：<br/>所有 rank 都有【全部 4 块的全和】"]
+    end
+
+    P1 --> P2
+
+    style P1 fill:#eaf2fb,stroke:#2c6fbb
+    style P2 fill:#eaf7ee,stroke:#2d7a3e
+```
+
+**「环上流动」的逐块示意**（N=4，块编号 0–3）：
+
+```mermaid
+flowchart TB
+    subgraph RS["Reduce-Scatter：每块都绕环走一圈，落地时已是全和"]
+        direction LR
+        R0["rank0<br/>块0 →"] --> R1["rank1"] --> R2["rank2"] --> R3["rank3"] --> R0
+    end
+    subgraph AG["All-Gather：已完备的块再绕一圈，人人拿到"]
+        direction LR
+        S0["rank0<br/>块0 已完备 →"] --> S1["rank1"] --> S2["rank2"] --> S3["rank3"] --> S0
+    end
+    style RS fill:#eaf2fb,stroke:#2c6fbb
+    style AG fill:#eaf7ee,stroke:#2d7a3e
+```
+
+> **注意两个阶段的方向虽然都沿环，但「语义」不同**：
+> 阶段 1 传的是**部分和**（越传越完整），阶段 2 传的是**已完备的结果**（只做复制）。
+> 面试里被问「ring all-reduce 两个阶段分别传什么」，这是标准答案。
+
 **时间模型**：
 
 ```
@@ -123,8 +163,29 @@ T_tree ≈ 2 log₂(N) × α + (≈ 2S) / BW     （N 大时带宽项同样趋�
 | 大消息 | **好** | 略差（树上层链路拥挤） |
 | 实现难度 | 低 | 中 |
 
-**N=8 时的步数对比**：ring 14 步，tree 6 步。若 α=3 μs，仅延迟项就差 `(14-6)×3μs = 24 μs`。
-对一个每次 all-reduce 只有 16 KiB 的 decode 场景（纯传输 0.04 μs），**ring 完全不可接受**。
+**把两个算法的「步数」画在一起对比**（N=8）：
+
+```mermaid
+flowchart TB
+    subgraph R["Ring：2(N-1) = 14 步，延迟随 N 线性增长"]
+        direction LR
+        r["步数 14<br/>每步数据量 S/N<br/>链路利用率最高"]
+    end
+    subgraph T["Tree：2·log2(N) = 6 步，延迟随 N 对数增长"]
+        direction LR
+        t["步数 6<br/>上层链路要汇更多数据<br/>带宽略差"]
+    end
+    R --> C{"消息很小？"}
+    T --> C
+    C -->|"是（延迟主导）"| PICKT["选 Tree / NVLS"]
+    C -->|"否（带宽主导）"| PICKR["选 Ring"]
+    style PICKT fill:#eaf7ee,stroke:#2d7a3e,stroke-width:2px
+    style PICKR fill:#eaf2fb,stroke:#2c6fbb,stroke-width:2px
+```
+
+**N=8 时的步数对比**：ring 14 步 vs tree 6 步。若 α=3 μs，仅延迟项就差 `(14-6)×3 = 24 μs`。
+对一个每次 all-reduce 只有 16 KiB 的 decode 场景（纯传输仅约 0.06 μs），**ring 完全不可接受**。
+
 
 > 这解释了 NCCL 的默认行为：**小消息走 tree（NVLS/tree），大消息走 ring**。
 > 详见 ch03 的算法选择逻辑。

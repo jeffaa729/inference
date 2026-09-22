@@ -45,19 +45,33 @@ vLLM 在 `cuda_communicator.py:477-479` 有一段注释专门讲这个：
 
 ## 5.1 三步分流：先定位是哪一层
 
+```mermaid
+flowchart TD
+    START(["分布式任务出问题"]) --> Q0{"进程起来了吗?"}
+    Q0 -->|没起来| S2["§5.2 引导/端口/DNS<br/>Address in use / VLLM_HOST_IP / FileStore"]
+    Q0 -->|起来了| Q1{"卡在哪一步?"}
+    Q1 -->|"卡在 NCCL 初始化<br/>（建连阶段）"| S3["§5.3 建连问题<br/>NCCL_SOCKET_IFNAME / NCCL_IB_HCA / GID"]
+    Q1 -->|"卡在第一次前向<br/>（第一个集合操作）"| S4["§5.4 集合操作不一致<br/>三一致 / CUDA Graph / P2P / GIN"]
+    Q1 -->|"跑着跑着卡住或报错"| S5["§5.5 运行期<br/>timeout / 垃圾数据 / EPLB 死锁"]
+    Q1 -->|"能跑但慢"| Q2{"通信占比高吗?"}
+    Q2 -->|"高（先 profile 确认）"| S6["§5.6 通信侧排查<br/>网卡/算法/backend/确定性模式"]
+    Q2 -->|"不高"| S7["不是通信问题<br/>查 attention/MoE kernel、调度、抢占"]
+
+    S2 --> FIX(["修好后重跑"])
+    S3 --> FIX
+    S4 --> FIX
+    S5 --> FIX
+    S6 --> FIX
+    S7 --> FIX
+
+    style Q0 fill:#fdf6e3,stroke:#b8860b
+    style Q1 fill:#fdf6e3,stroke:#b8860b
+    style Q2 fill:#fdf6e3,stroke:#b8860b
+    style S7 fill:#eaf7ee,stroke:#2d7a3e,stroke-width:2px
 ```
-① 进程起来了吗？
-   ├─ 没起来 → 引导/端口/DNS 问题        → §5.2
-   └─ 起来了
-      ↓
-② 卡在哪一步？
-   ├─ 卡在 NCCL 初始化（建连）            → §5.3
-   ├─ 卡在第一次前向（第一个集合操作）     → §5.4
-   └─ 跑着跑着卡住 / 报错                 → §5.5
-      ↓
-③ 能跑但慢？
-   └─ 带宽/延迟不达标                     → §5.6
-```
+
+**图里最重要的一条边**：`能跑但慢 → 通信占比高吗？→ 不高 → 不是通信问题`。
+**这一步能挡掉大部分「上手就调 NCCL 参数」的错误排查方向**（§5.6 末尾那个真实案例讲的就是这个）。
 
 **第一步永远是打开日志**：
 

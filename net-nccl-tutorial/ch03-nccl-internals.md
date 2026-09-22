@@ -113,6 +113,44 @@ NCCL 会基于「消息大小 + world size + 拓扑 + 是否可用 SHARP」自�
 > 延迟项，大消息用带宽更优的算法（ring），并用协议（LL/LL128/Simple）在同一算法内继续调整
 > 延迟-带宽权衡。」
 
+**把两层决策画成一张图**（算法层 + 协议层，这是面试里最容易只答一半的地方）：
+
+```mermaid
+flowchart TD
+    IN(["一次 ncclAllReduce"]) --> D1{"消息多大?"}
+
+    D1 -->|"极小（几 KB 以下）"| A1["算法：<b>Tree / NVLS</b><br/>步数 log N，避开延迟项"]
+    D1 -->|"中等"| A2["算法：<b>NVLS / Ring</b><br/>看拓扑是否支持网内规约"]
+    D1 -->|"很大（几十 MB+）"| A3["算法：<b>Ring</b><br/>搬运量最优，带宽打满"]
+
+    A1 --> P1["协议：<b>LL</b><br/>小包立刻发，不攒批"]
+    A2 --> P2["协议：<b>LL128</b><br/>128B 粒度，利用率更高"]
+    A3 --> P3["协议：<b>Simple</b><br/>攒大块再发，带宽最优"]
+
+    P1 --> OUT(["内核在 NVLink / IB 上执行"])
+    P2 --> OUT
+    P3 --> OUT
+
+    D2{"拓扑允许吗?"} -.->|"SHARP/NVSwitch 可用"| A2
+    D2 -.->|"只有 PCIe"| A3
+
+    style A1 fill:#eaf7ee,stroke:#2d7a3e
+    style A3 fill:#eaf2fb,stroke:#2c6fbb
+    style P1 fill:#eaf7ee,stroke:#2d7a3e
+    style P3 fill:#eaf2fb,stroke:#2c6fbb
+```
+
+**读图要点**：
+
+| 层 | 决定什么 | 权衡 |
+|---|---|---|
+| **算法层** | 数据在 rank 之间怎么走（ring / tree / NVLS） | **步数**（延迟）vs **搬运量**（带宽） |
+| **协议层** | 每个包多大、什么时候发（LL / LL128 / Simple） | **包的个数**（延迟）vs **单包效率**（带宽） |
+
+**两层都在调同一个 tradeoff，但粒度不同** —— 所以「小消息用 tree」只是第一层，
+完整的答案必须包含第二层。图中虚线框（拓扑是否允许）是第二个决策输入：
+**没有 NVSwitch 就没有 NVLS**，所以拓扑会直接改变算法候选集。
+
 ---
 
 ## 3.4 从 NCCL 的结构体反推它内部关心什么（vLLM 提供的独特视角）

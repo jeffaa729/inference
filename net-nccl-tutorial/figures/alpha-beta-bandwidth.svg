@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="520" viewBox="0 0 900 520" font-family="Helvetica,Arial,sans-serif">
+<rect width="900" height="520" fill="#ffffff"/>
+<text x="78" y="24" font-size="16" font-weight="bold" fill="#111">all-reduce 的有效带宽 vs 消息大小（ring 模型，N=8）</text>
+<text x="78" y="41" font-size="12" fill="#555">有效带宽 = 每 rank 搬运量 / 耗时；搬运量按 ring 的 2(N-1)/N·S 计</text>
+<line x1="78" y1="458.0" x2="710" y2="458.0" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="462.0" font-size="11" fill="#444" text-anchor="end">1 GB/s</text>
+<line x1="78" y1="413.4" x2="710" y2="413.4" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="417.4" font-size="11" fill="#444" text-anchor="end">2 GB/s</text>
+<line x1="78" y1="354.3" x2="710" y2="354.3" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="358.3" font-size="11" fill="#444" text-anchor="end">5 GB/s</text>
+<line x1="78" y1="309.7" x2="710" y2="309.7" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="313.7" font-size="11" fill="#444" text-anchor="end">10 GB/s</text>
+<line x1="78" y1="265.1" x2="710" y2="265.1" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="269.1" font-size="11" fill="#444" text-anchor="end">20 GB/s</text>
+<line x1="78" y1="206.0" x2="710" y2="206.0" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="210.0" font-size="11" fill="#444" text-anchor="end">50 GB/s</text>
+<line x1="78" y1="161.4" x2="710" y2="161.4" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="165.4" font-size="11" fill="#444" text-anchor="end">100 GB/s</text>
+<line x1="78" y1="116.8" x2="710" y2="116.8" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="120.8" font-size="11" fill="#444" text-anchor="end">200 GB/s</text>
+<line x1="78" y1="57.7" x2="710" y2="57.7" stroke="#e6e6e6" stroke-width="1"/>
+<text x="68" y="61.7" font-size="11" fill="#444" text-anchor="end">500 GB/s</text>
+<line x1="78.0" y1="46" x2="78.0" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="78.0" y="476" font-size="11" fill="#444" text-anchor="middle">1024 KiB</text>
+<line x1="141.2" y1="46" x2="141.2" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="141.2" y="476" font-size="11" fill="#444" text-anchor="middle">4096 KiB</text>
+<line x1="204.4" y1="46" x2="204.4" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="204.4" y="476" font-size="11" fill="#444" text-anchor="middle">16384 KiB</text>
+<line x1="267.6" y1="46" x2="267.6" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="267.6" y="476" font-size="11" fill="#444" text-anchor="middle">65536 KiB</text>
+<line x1="330.8" y1="46" x2="330.8" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="330.8" y="476" font-size="11" fill="#444" text-anchor="middle">262144 KiB</text>
+<line x1="394.0" y1="46" x2="394.0" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="394.0" y="476" font-size="11" fill="#444" text-anchor="middle">1024 MiB</text>
+<line x1="457.2" y1="46" x2="457.2" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="457.2" y="476" font-size="11" fill="#444" text-anchor="middle">4096 MiB</text>
+<line x1="520.4" y1="46" x2="520.4" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="520.4" y="476" font-size="11" fill="#444" text-anchor="middle">16384 MiB</text>
+<line x1="583.6" y1="46" x2="583.6" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="583.6" y="476" font-size="11" fill="#444" text-anchor="middle">65536 MiB</text>
+<line x1="646.8" y1="46" x2="646.8" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="646.8" y="476" font-size="11" fill="#444" text-anchor="middle">262144 MiB</text>
+<line x1="710.0" y1="46" x2="710.0" y2="458" stroke="#f0f0f0" stroke-width="1"/>
+<text x="710.0" y="476" font-size="11" fill="#444" text-anchor="middle">1 GiB</text>
+<text x="394" y="502" font-size="12" fill="#333" text-anchor="middle">消息大小 S（对数轴）</text>
+<line x1="78" y1="46" x2="78" y2="458" stroke="#333" stroke-width="1.5"/>
+<line x1="78" y1="458" x2="710" y2="458" stroke="#333" stroke-width="1.5"/>
+<line x1="204.4" y1="46" x2="204.4" y2="458" stroke="#c0392b" stroke-width="1" stroke-dasharray="3,4" opacity="0.55"/>
+<text x="208.4" y="59" font-size="10" fill="#c0392b" transform="rotate(0)">decode 小消息 16 KiB</text>
+<line x1="330.8" y1="46" x2="330.8" y2="458" stroke="#c0392b" stroke-width="1" stroke-dasharray="3,4" opacity="0.55"/>
+<text x="334.8" y="59" font-size="10" fill="#c0392b" transform="rotate(0)">custom AR 上限 256 KiB</text>
+<line x1="583.6" y1="46" x2="583.6" y2="458" stroke="#c0392b" stroke-width="1" stroke-dasharray="3,4" opacity="0.55"/>
+<text x="587.6" y="59" font-size="10" fill="#c0392b" transform="rotate(0)">prefill 大消息 64 MiB</text>
+<polyline points="78.0,458.0 109.6,458.0 141.2,456.6 172.8,412.1 204.4,367.8 236.0,323.7 267.6,280.2 299.2,237.8 330.8,197.4 362.4,160.4 394.0,128.9 425.6,104.4 457.2,87.5 488.8,77.0 520.4,71.1 552.0,67.9 583.6,66.2 615.2,65.4 646.8,65.0 678.4,64.7 710.0,64.6" fill="none" stroke="#2d7a3e" stroke-width="2.5"/>
+<polyline points="78.0,458.0 109.6,458.0 141.2,458.0 172.8,458.0 204.4,458.0 236.0,458.0 267.6,428.3 299.2,385.6 330.8,344.8 362.4,307.3 394.0,274.8 425.6,249.2 457.2,231.2 488.8,219.8 520.4,213.3 552.0,209.8 583.6,207.9 615.2,207.0 646.8,206.5 678.4,206.3 710.0,206.2" fill="none" stroke="#b8860b" stroke-width="2.5"/>
+<polyline points="78.0,458.0 109.6,458.0 141.2,458.0 172.8,458.0 204.4,458.0 236.0,438.1 267.6,393.7 299.2,349.4 330.8,305.6 362.4,262.4 394.0,220.7 425.6,181.5 457.2,146.6 488.8,117.8 520.4,96.5 552.0,82.5 583.6,74.1 615.2,69.5 646.8,67.1 678.4,65.8 710.0,65.2" fill="none" stroke="#8a8a8a" stroke-width="2.5" stroke-dasharray="6,4"/>
+<line x1="726" y1="60" x2="754" y2="60" stroke="#2d7a3e" stroke-width="2.5"/>
+<text x="760" y="64" font-size="10.5" fill="#333">NVLink 4 (alpha=0.5us, 450GB/s)</text>
+<line x1="726" y1="82" x2="754" y2="82" stroke="#b8860b" stroke-width="2.5"/>
+<text x="760" y="86" font-size="10.5" fill="#333">IB NDR (alpha=5us, 50GB/s)</text>
+<line x1="726" y1="104" x2="754" y2="104" stroke="#8a8a8a" stroke-width="2.5" stroke-dasharray="6,4"/>
+<text x="760" y="108" font-size="10.5" fill="#333">Same NVLink, alpha=3us (toy)</text>
+<circle cx="204.4" cy="367.8" r="4" fill="none" stroke="#2d7a3e" stroke-width="2"/>
+<text x="96" y="412" font-size="11.5" fill="#2d7a3e">小消息区：NVLink 上 16 KiB 只剩约 4.06 GB/s</text>
+<text x="96" y="428" font-size="11.5" fill="#2d7a3e">（理论线速 450 GB/s 的 0.90%）—— 延迟项 alpha 完全主导</text>
+<text x="96" y="446" font-size="11.5" fill="#b8860b">大消息区：曲线趋于平线，此时才轮到带宽说话</text>
+</svg>

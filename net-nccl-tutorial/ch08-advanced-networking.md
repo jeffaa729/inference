@@ -77,6 +77,71 @@
 - **dispatch**：token → 专家（按专家所在 rank 分组）
 - **combine**：专家输出 → token（按原始 rank 分组，并加权求和）
 
+**用 2 个 rank 举一个具体例子**（这是理解 MoE 通信最有效的一张图）：
+
+假设 EP=2，共 4 个专家，`E0/E1` 在 rank0，`E2/E3` 在 rank1，`topk=1`。
+
+```mermaid
+flowchart TB
+    subgraph R0A["rank0 · 本地 batch"]
+        direction TB
+        t0["token a"]
+        t1["token b"]
+    end
+    subgraph R1A["rank1 · 本地 batch"]
+        direction TB
+        t2["token c"]
+        t3["token d"]
+    end
+
+    t0 -->|"router 选中 E1<br/>E1 在 rank0 → 不用传"| E1r0["rank0 上的 E1"]
+    t1 -->|"router 选中 E2<br/>E2 在 rank1 → dispatch"| E2r1["rank1 上的 E2"]
+    t2 -->|"router 选中 E0<br/>E0 在 rank0 → dispatch"| E0r0["rank0 上的 E0"]
+    t3 -->|"router 选中 E3<br/>E3 在 rank1 → 不用传"| E3r1["rank1 上的 E3"]
+
+    E1r0 -->|combine| t0
+    E2r1 -->|combine| t1
+    E0r0 -->|combine| t2
+    E3r1 -->|combine| t3
+
+    style t1 fill:#fdecea,stroke:#c0392b
+    style t2 fill:#fdecea,stroke:#c0392b
+    style R0A fill:#eaf2fb,stroke:#2c6fbb
+    style R1A fill:#eaf7ee,stroke:#2d7a3e
+```
+
+**从这张图能读出的四个关键事实**：
+
+| 事实 | 含义 |
+|---|---|
+| **只有跨 rank 的才需要传** | `token a`/`token d` 的专家在本 rank，**零通信**。通信量与「路由命中率」直接相关。 |
+| **变长** | rank0 只发了 1 个 token 给 rank1，rank1 也只发了 1 个给 rank0 —— 但换个输入就会变。**所以必须交换 sizes 元数据**（§8.1.4）。 |
+| **combine 是反向的同一张图** | 但多了**加权求和**：如果一个 token 的 topk>1，它的多个专家结果要在原 rank 上相加。 |
+| **token 顺序被打乱** | 到了 rank1 的 token 属于 rank0，和本地 token 混在一起 → **必须记录 permute 映射才能还原**（§8.1.3）。 |
+
+> 💡 **一句话记住 MoE 通信**：
+> **dispatch 是「按专家分组」，combine 是「按来源归位」**，
+> 而两次都需要一张「谁去了哪」的索引表。
+
+**把 dispatch/combine 与集合操作对照**（回答「为什么不用 all-reduce」）：
+
+```mermaid
+flowchart LR
+    subgraph AR["如果用 all-reduce"]
+        direction TB
+        a1["每张卡算出自己专家的部分结果"] --> a2["all-reduce：<b>所有 rank</b>的结果都汇总"] --> a3["通信量 ∝ 参与者数量<br/>且每人拿到全部"]
+    end
+    subgraph A2A["实际用 all-to-all"]
+        direction TB
+        b1["每个 token 只发给<br/>持有其专家的 rank"] --> b2["all-to-all：只送到<b>真正需要它的地方</b>"] --> b3["通信量 ∝ 路由分布<br/>稀疏性带来收益"]
+    end
+    style AR fill:#fdecea,stroke:#c0392b
+    style A2A fill:#eaf7ee,stroke:#2d7a3e,stroke-width:2px
+```
+
+**核心区别**：**all-reduce 的通信量由「有多少参与者」决定；
+all-to-all 的通信量由「数据要去哪」决定。** 专家数远多于 rank 数时，后者小得多。
+
 ### 8.1.3 token permute / unpermute：MoE 通信的核心数据结构
 
 **问题**：token 被送到别的 rank，计算完要能**还原到原来的位置**。
@@ -606,19 +671,36 @@ piecewise 编译无法处理 → **必须全图编译**。
 
 **DCP 的通信模式（面试可以画出来）**：
 
-```
-decode 时，每张卡只持有部分 KV，但 attention 需要算「query 对所有 KV」：
-① query all-gather      —— 把各卡的 query 收集起来（因为每卡只算自己那部分 KV）
-② 本地算 attention + LSE（log-sum-exp，softmax 的中间统计量）
-③ LSE all-gather        —— 交换各卡的 LSE，才能正确合并
-④ 输出按 head 维 reduce-scatter（或 all-reduce）
+```mermaid
+sequenceDiagram
+    autonumber
+    participant G0 as DCP rank 0<br/>持有 KV 的第 0..k 段
+    participant G1 as DCP rank 1<br/>持有 KV 的第 k..2k 段
+    participant All as 合并结果
+
+    Note over G0,G1: decode 一步：query 需要 attend 到【全部】KV
+    G0->>G1: ① query all-gather<br/>（每卡只有自己那部分 KV，需要全部 query 来配）
+    G1->>G0: ① query all-gather
+    Note over G0,G1: ② 各自用本地 KV 段算部分 attention
+    G0->>G0: 本地 attn + 记录 LSE₀<br/>（softmax 的部分分母）
+    G1->>G1: 本地 attn + 记录 LSE₁
+    G0->>G1: ③ LSE all-gather ★ 关键
+    G1->>G0: ③ LSE all-gather
+    Note over G0,G1: 有了全部 LSE 才能算全局 softmax 的归一化因子
+    G0->>All: ④ 输出按 head reduce-scatter
+    G1->>All: ④ 输出按 head reduce-scatter
 ```
 
-**关键洞察：为什么需要 all-gather LSE**？
+**关键洞察：为什么必须 all-gather LSE**？
 因为 **softmax 的归一化因子（分母）是所有 KV 的函数**。
 每张卡只看到部分 KV，所以只能算出**部分分母** →
 必须把所有卡的 LSE 收集起来才能得到正确的全局 softmax。
 **这是「分片 attention」的核心数学困难**，也是 flash-decoding / ring-attention 的共同课题。
+
+> **面试时的类比**：这和「分组求平均值」不能简单取平均是一样的 ——
+> 必须先知道每组的**元素个数**（也就是权重），才能正确合并。
+> LSE 就是那个「权重」。
+
 
 **vLLM 的优化：`--dcp-comm-backend`**
 

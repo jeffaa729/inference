@@ -113,6 +113,99 @@ GPU 上是「compute A → comm A → compute B → comm B」**严格串行**（
 **关键前提**：ubatch 0 和 ubatch 1 是**独立的请求子集**，彼此没有数据依赖。
 所以「ubatch 1 的通信」和「ubatch 0 的计算」可以安全重叠。
 
+**画成时间线最清楚**（左＝单线程的串行，右＝DBO 的双线程交错）：
+
+```mermaid
+gantt
+    title 单线程：通信与计算严格串行（无重叠）
+    dateFormat X
+    axisFormat %s
+    section compute stream
+    compute0        :a1, 0, 3
+    compute1        :a2, 6, 9
+    section comm stream
+    comm0           :b1, 3, 6
+    comm1           :b2, 9, 12
+```
+
+```mermaid
+gantt
+    title DBO：ubatch1 的通信藏在 ubatch0 的计算后面（真并行）
+    dateFormat X
+    axisFormat %s
+    section compute stream
+    compute0        :a1, 0, 4
+    compute1        :a2, 7, 11
+    section comm stream
+    comm0           :b1, 4, 7
+    comm1           :b2, 4, 7
+```
+
+**对比结论**（把两张图叠起来看）：
+
+| | 单线程 | DBO |
+|---|---|---|
+| 总时间 | 12 个单位 | **11 个单位** |
+| GPU 通信单元的空闲 | 计算期间通信链路闲着 | **通信与计算重叠** |
+| 关键 | comm 依赖同一 ubatch 的 compute | ubatch1 的 comm 依赖 ubatch1 的 compute，**与 ubatch0 无关** |
+
+> ⚠️ 上图是为了看清重叠关系而画的**示意**（把时间片离散化了）。
+> vLLM 真实的重叠时间线（含 shared expert、MLA 等阶段）见
+> `docs/design/dbo.md:15-28` 那段注释 —— 里面有 `A0/A1/D/C/S` 的精确排布，
+> 值得对照着看。
+
+**真实排布长什么样**（`docs/design/dbo.md` 原文注释，下标 0/1 = ubatch id）：
+
+```
+Schedule notation legend:
+   S  = Shared expert
+   A0 = MLA qkv proj
+   A1 = Core attn + out proj + MoE gate
+   D  = Dispatch
+   C  = Combine
+
+Comp: |-A0₀-A1₀-||-MLP₁-||-S₁-MLP₀-||-S₀-A0₁-A1₁-|
+Comm: |----D₁---||--D₀--||----C₁---||-----C₀-----|
+Order: D₁ send, A0₀, A1₀, D₁ recv, D₀ send, MLP₁, D₀ recv,
+       C₁ send, S₁, MLP₀, C₁ recv, C₀ send, S₀, A0₁, A1₁, C₀ recv
+```
+
+**读懂这段排布的关键**：观察 `D₁ send` 出现在 `A0₀/A1₀` **之前**，
+而 `D₁ recv` 出现在它们**之后** —— 即**「先发起、后用结果」**，
+把这个通信的空档用另一个 ubatch 的计算填满了。
+**这正是「异步 prepare/finalize」存在的原因**（§7.3.3 准入清单里的第 5 条会回到这一点）。
+
+### 7.2.2b ping-pong 的「接力棒」是怎么传的
+
+两个线程靠 **两套事件**交替传递控制权 —— 一套在 CPU 侧（`threading.Event`），
+一套在 GPU 侧（`torch.cuda.Event`）：
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant T0 as 线程0 · ubatch0
+    participant E0 as CPU 事件
+    participant T1 as 线程1 · ubatch1
+    participant GPU as GPU 两个 stream
+
+    Note over T0,T1: 启动：两个线程在 ready_barrier 会合后都睡下
+    T0->>GPU: 提交 compute0（compute stream）
+    T0->>E0: cpu_signal_event.set() → 叫醒线程1
+    T0->>T0: cpu_wait_event.wait() → 自己睡
+    Note over T1: 醒来，_restore_context() 换回自己的 forward_context
+    T1->>GPU: 提交 comm1（此时 GPU 正在跑 compute0）★ 重叠发生
+    T1->>E0: 叫醒线程0
+    T1->>T1: 自己睡
+    Note over T0: 醒来
+    T0->>GPU: gpu_compute_done_event.record(compute0)<br/>切到 comm stream 并 wait_event(compute0)
+    Note over GPU: comm0 等 compute0 完成 —— 这是【真实数据依赖】
+```
+
+**图里最容易忽略的一点**：`threading.Event` 是**阻塞等待**，不是自旋。
+`ubatching.py:94-105` 的 `_cpu_yield` 用 `wait()` 让线程真正睡眠 ——
+**如果改成自旋，两个线程会争 GIL、浪费 CPU，反而拖慢调度。**
+（对比：`shm_broadcast.py` 的 `SpinCondition` 是另一种选择，用 ZMQ 通知来避免忙等。）
+
 ### 7.2.3 线程与 stream 的映射
 
 `make_ubatch_contexts`（`vllm/v1/worker/ubatching.py:202-241`）：
