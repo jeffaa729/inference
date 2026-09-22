@@ -67,6 +67,7 @@ python run_labs.py all             # 2. 跑（或 core / run a2 a5）
 python run_labs.py collect         # 3. 汇总打包，拉回本地 —— 别忘了这步！
 ```
 
+
 **最短路径（距面试 3 天）**：ch02 → ch03 → ch04 → ch08 → ch06。
 **完整路径**：按顺序读，每章末尾做「自检题」，不会的回头看。
 **只有 2 小时**：README → ch02 §2.3 → ch04 §4.4 → ch06 第六部分（易错点）。
@@ -188,6 +189,7 @@ python verify_citations.py     # 63/63 才说明行号对得上
 | **用 vLLM 源码实体** | ch04 + ch07 + ch08 + appendix | **63 条引用全部经脚本校验（63/63 exact）**；覆盖 `GroupCoordinator` / 8 路 all-reduce 选择链 / `CustomAllreduce` gate 链 / pynccl / 对称内存四层实现 / 9 个 all-to-all manager / EPLB 独立组 / 控制面 `MessageQueue` / 权重传输 / **`UBatchContext` 与 SM 仲裁** / **`FusedMoEPrepareAndFinalize` 的 wire format** / **SP pattern 匹配** / **DCP 通信与 `KVCacheLayout`** |
 | **更多面试题**（第 1 项改进） | ch06 | 在原 20 题基础上**大幅扩充**：新增进阶网络与硬件、MoE 通信与 EP 进阶、通算融合/重叠、新维度与传输层等部分，并新增多条追问链 |
 | **更多可用 GPU 的 lab**（第 3 项改进） | **labs-gpu.md + 4 个脚本** | 按预算分档（2–4 卡 / 8 卡 NVLink / 跨机）、成本估算、可直接粘贴的命令、`provision_rented_gpu.py` 上机自检、`allreduce_bench.py` all-reduce 扫描出 CSV、`verify_collectives.py` 正确性验证、`run_labs.py` 一键跑套餐+汇总+打包、避坑清单、结果模板 |
+
 
 ## 4.1 本次相比初版新增了什么
 

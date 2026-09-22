@@ -12,6 +12,7 @@
 > `allreduce_bench.py` / `run_labs.py`），并强调「跑完立刻存数据」。
 > 本文件偏「概念实验」，租机场景下性价比最高的实验在 `labs-gpu.md` 的套餐 A。
 
+
 ---
 
 ## Lab 0：验证教程里的代码引用（无需 GPU，2 分钟）
@@ -21,15 +22,22 @@
 **步骤**：
 
 ```bash
+```bash
 # 会自动定位 vLLM checkout；也可以显式指定
 python verify_citations.py
 VLLM_REPO=/path/to/vllm python verify_citations.py
 
 # ch06 里 200+ 条简写引用的存在性烟测
 python check_ch06_citations.py
+
+# 备用路径（incoming branch 提供的可执行路径）
+python extra_proj/net_nccl_tutorial/verify_citations.py
 ```
 
-**预期输出**：`OK` 行 + 末尾 `63/63 exact, 0 moved, 0 unresolved`。
+**预期输出**：`OK` 行 + 末尾 `63/63 exact, 0 moved, 0 unresolved`（对根目录的 verify_citations.py）。
+
+**预期输出（备用脚本）**：`OK` 行 + 末尾 `19/19 通过`（针对 extra_proj 下的脚本）。
+
 
 **如果出现 `DRIFT`**：说明该行号已经变了，但脚本会告诉你**期望的符号名**。
 用符号名重新定位：
