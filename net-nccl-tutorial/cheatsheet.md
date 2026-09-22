@@ -162,12 +162,65 @@ hang 的三步分流：引导(端口/IP) → 建连(NCCL bootstrap/IB) → 首�
 | KV 传输 README 描述的两层抽象**已被删除** | 文档滞后于代码 |
 | `expert_map` 被所有 prepare 签名接收，但**没人读它** | 容易以为通信层自己用了它 |
 | `batch_invariant` 会把 `NCCL_MAX_NCHANNELS` 压到 **1** | 名字看不出和 NCCL 有关 |
+| **TP 同时切分权重和 KV cache** | 容易以为 TP 只影响权重 |
+| **Chunked prefill 和 PD 分离解决同一个问题** | 容易以为是两件不相干的事 |
+| **TPOT ≠ ITL**（平均 vs 逐次抖动） | 名字太像，常被当同一个指标 |
+| **FlashAttention 是精确算法** | 名字带"Flash"容易以为是近似 |
+| **投机解码可能比不用更慢** | 容易以为它无条件加速 |
+| **n-gram 投机解码不需要训练** | 容易以为投机解码都要训 draft 模型 |
+| `gpu_memory_utilization` 默认 **0.92**（不是 0.9） | 记忆偏差 |
 
 ---
 
-## C.12 最后 3 句可以背的话
+## C.12 单卡侧速查（附录 E）
+
+```
+PagedAttention = 把 OS 虚拟内存搬到 KV cache：
+  block(默认 16 token) ↔ 页 ｜ block table ↔ 页表 ｜ 共享前缀 ↔ COW
+  解决：内部碎片 / 外部碎片 / 无法共享
+  代价：attention kernel 要按 block table gather + block 管理器开销
+  收益：显存利用率 ~30% → ~90%+（直接决定并发数与吞吐）
+
+FlashAttention：精确算法（非近似），快的原因是【减少 HBM IO】
+  核心：tiling + online softmax（运行中维护 max/sum 增量修正）
+  ★ 追问必答：attention 是 memory-bound，不是 compute-bound
+
+Continuous batching：每个 decode step 重新组 batch（≠ static batching 等最慢的）
+  抢占两策略：Recompute（费算力）/ Swap（费 PCIe 带宽）
+Chunked prefill：把长 prefill 切块与 decode 混跑
+  ★ 和 PD 分离解决同一个问题；【先试 chunked prefill】（代价近零）
+
+量化命名 = 权重位宽 + 激活位宽：W4A16 / W8A8 / NVFP4
+  ★ decode 是 memory-bound → 低比特量化对 decode 加速更明显
+  ★ 量化受三方约束：模型精度 / kernel 支持 / 【通信库支持】（ch08）
+
+投机解码：小模型猜 k 个 → 大模型一次验证
+  ★ 成立的物理基础：大模型前向 memory-bound，多算几个 token 几乎不额外花时间
+  ★ 接受率低会比不用更慢 ｜ n-gram 方案不需要训练
+  ★ 与 DBO 冲突：投机解码产生【动态 token 数】，DBO/CUDA Graph 要求形状可预测
+
+指标体系：
+  TTFT ← prefill + 排队 ｜ TPOT ← decode ｜ ITL ← 逐次抖动（SLA 约束它的 p99）
+  ★ 吞吐必须绑定 SLO；Goodput = 满足 SLO 的有效吞吐
+
+OOM 三类分诊：启动就 OOM（权重放不下）→ 加 TP/PP 或量化
+             跑起来才 OOM（KV 不够）→ 降 max_model_len 或加 TP
+             跑久了 OOM（碎片/泄漏）→ 查 prefix cache 上限
+
+★ Maximum concurrency 那行日志 = 并发上限（算法：KV 容量 ÷ max_model_len）
+```
+
+---
+
+## C.13 最后 4 句可以背的话
 
 1. **「TP 的瓶颈是延迟×步数，不是带宽 —— 所以 TP 只能在 NVLink 域内。」**
 2. **「MoE 用 all-to-all 是因为通信量由路由的稀疏性决定，而不是由参与者数量决定。」**
 3. **「通算融合的本质是打破『计算→通信→计算』的串行链；DBO 的做法是 CPU 侧严格交替、
    GPU 侧真并行。」**
+4. **「PagedAttention 不是新的 attention 算法，而是把 KV cache 的管理方式
+   从『连续预分配』改成『分页按需分配』—— 和操作系统虚拟内存一一对应。」**
+
+> 前 3 句覆盖「多卡视角」，第 4 句覆盖「单卡视角」。
+> **面试官通常先问第 4 句的方向，再问前 3 句** —— 这也是为什么
+> 附录 E 被放在「必读」而不是「选读」。
