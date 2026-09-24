@@ -212,7 +212,47 @@ OOM 三类分诊：启动就 OOM（权重放不下）→ 加 TP/PP 或量化
 
 ---
 
-## C.13 最后 4 句可以背的话
+## C.13 MegaMoE 速查（附录 F）
+
+```
+MegaMoE = DeepGEMM 的 MoE 融合 megakernel
+  把 dispatch → L1 GEMM → 激活 → L2 GEMM → combine 压成【1 次 cooperative launch】
+  省的是：5 次 kernel launch + 中间结果的 HBM 往返 + 全局同步
+
+三个前置条件（缺一不可）：
+  ① 【对称内存】SymmBuffer 用 torch.distributed._symmetric_memory
+     —— kernel 要直接寻址对端 buffer，否则只能退回消息传递
+  ② 【cooperative launch】要求整批 SM 同时驻留（不是排队等 GPU）
+  ③ 【Blackwell only】依赖 SM100 的 TMA / UTCCP / FP4 MMA
+
+★ 最有价值的面试点：NCCL_MAX_CTAS=8 是为了【防死锁】而不是性能
+  cooperative launch 抢不到 SM 会挂起等释放；
+  而占着 SM 的 NCCL 可能又在等后续操作 → 互等 → 死锁
+  vLLM 在 eplb_utils.override_envs_for_eplb() 里主动把它压到 8
+
+内部机制：
+  kernel 自带 grid barrier + NVLink barrier + 任务调度计数器（按 128B L2 line 对齐防伪共享）
+  ring buffer 的「满/空块计数」实现 L1/L2 流水线重叠
+  TokenSrcMetadata 只 12 字节（rank_idx/token_idx/topk_idx）就能回传结果
+  7 个候选 BLOCK_M {8,16,32,64,96,128,192} 应对专家负载不均
+
+输入必须预量化：prepare_megamoe 的 Triton staging kernel
+  hidden → fp8 e4m3 + E8M0 组 scale（组大小 32，4 个打包进 int32）
+  topk → int64，padding 置 -1；weights → fp32，padding 置 0
+  ★ 融合掉 kernel 边界，代价是多了 staging kernel + 权重预变换
+
+三条 backend：
+  deep_gemm_mega_moe（vLLM 原生）
+  flashinfer_moe_ep_mega_deep_gemm / _mega_cutedsl（FlashInfer EP 运行时）
+
+★ 与 DBO 的关系：两条路线在 SM 上【对立】
+  DBO 给通信留 20 个 SM ｜ MegaMoE 要计算独占、通信让路 —— 不能简单叠加
+  验证： python code/check_megamoe_claims.py   （35 条事实）
+```
+
+---
+
+## C.14 最后 4 句可以背的话
 
 1. **「TP 的瓶颈是延迟×步数，不是带宽 —— 所以 TP 只能在 NVLink 域内。」**
 2. **「MoE 用 all-to-all 是因为通信量由路由的稀疏性决定，而不是由参与者数量决定。」**

@@ -17,7 +17,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-FIGDIR = HERE / "figures"
+FIGDIR = HERE.parent / "figures"   # figures/ 留在仓库根
 
 
 def _force_utf8() -> None:

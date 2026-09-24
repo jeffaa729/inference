@@ -350,7 +350,7 @@
 #!/usr/bin/env python3
 """验证教程里的 path:line 引用是否仍然指向预期的符号。
 
-用法： python verify_citations.py
+用法： python code/verify_citations.py
 """
 import sys
 from pathlib import Path

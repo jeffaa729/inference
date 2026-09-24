@@ -19,7 +19,7 @@ import re
 import sys
 from pathlib import Path
 
-CH06 = Path(__file__).resolve().parent / "ch06-interview-bank.md"
+CH06 = Path(__file__).resolve().parent.parent / "docs" / "ch06-interview-bank.md"
 
 
 def find_vllm_repo() -> Path | None:

@@ -59,11 +59,11 @@ nvidia-smi --query-gpu=name,memory.total --format=csv
 ### D.0.3 省钱的三条铁律
 
 1. **本地准备好一切再开机器**。脚本、命令、模型下载（或提前缓存到网络盘）都先就绪。
-   **租机后的第一件事不是写代码，是跑 `python provision_rented_gpu.py`**（见 §D.1）。
+   **租机后的第一件事不是写代码，是跑 `python code/provision_rented_gpu.py`**（见 §D.1）。
 2. **模型用小号的**。验证通信行为**不需要大模型** ——
    `Qwen2.5-0.5B`（~1 GB）足够测 TP 通信，`Qwen2.5-7B` 足够测真实负载。
    **不要为了「真实感」去下 70B，那会把时间全花在下载上。**
-3. **跑完立刻 `python run_labs.py collect`**，把数据落到文件并从机器上拉走。
+3. **跑完立刻 `python code/run_labs.py collect`**，把数据落到文件并从机器上拉走。
    **实例一释放，数据就没了。**
 
 ---
@@ -79,7 +79,7 @@ nvidia-smi --query-gpu=name,memory.total --format=csv
 5. 打印建议的实验套餐（按你实际有几张卡）
 
 ```bash
-python provision_rented_gpu.py
+python code/provision_rented_gpu.py
 ```
 
 **预期输出末尾**会长这样（示意）：
@@ -372,16 +372,16 @@ vllm serve $MOE_MODEL --data-parallel-size 16 --data-parallel-size-local 8 \
 
 ```bash
 # 第 1 步：上机自检（30 秒）——先知道这台机器能做什么
-python provision_rented_gpu.py
+python code/provision_rented_gpu.py
 
 # 第 2 步：看计划，然后跑
-python run_labs.py list            # 按实际卡数显示哪些能跑
-python run_labs.py all             # 跑全部能跑的（或 core / run a2 a5）
-python run_labs.py core            # 只有 2 小时时：a2 + a5
+python code/run_labs.py list            # 按实际卡数显示哪些能跑
+python code/run_labs.py all             # 跑全部能跑的（或 core / run a2 a5）
+python code/run_labs.py core            # 只有 2 小时时：a2 + a5
 
 # 第 3 步：汇总 + 打包（一定要做！）
-python run_labs.py markdown        # 把 CSV/JSON 渲染成 SUMMARY.md
-python run_labs.py collect         # 打成 tar.gz，拉回本地
+python code/run_labs.py markdown        # 把 CSV/JSON 渲染成 SUMMARY.md
+python code/run_labs.py collect         # 打成 tar.gz，拉回本地
 ```
 
 `run_labs.py` 会：
@@ -395,7 +395,7 @@ python run_labs.py collect         # 打成 tar.gz，拉回本地
 
 ```bash
 # 环境自检
-python provision_rented_gpu.py --json           # 额外写 env_report.json
+python code/provision_rented_gpu.py --json           # 额外写 env_report.json
 
 # all-reduce 扫描（核心）
 torchrun --nproc_per_node=2 allreduce_bench.py \
@@ -488,7 +488,7 @@ torchrun --nproc_per_node=2 verify_collectives.py --json results/verify.json
 - [ ] 准备好 `results/` 目录和拉取方式（`scp` / 对象存储）
 
 **上机后立刻**
-- [ ] `python provision_rented_gpu.py` → 存 `env_report.txt`
+- [ ] `python code/provision_rented_gpu.py` → 存 `env_report.txt`
 - [ ] `nvidia-smi topo -m` → 存 `topo.txt`
 - [ ] 跑一次 2 卡冒烟，确认通信真的能用（**别等到半小时后才发现网络不通**）
 - [ ] 检查模型是否能下载（或已在缓存里）
@@ -500,7 +500,7 @@ torchrun --nproc_per_node=2 verify_collectives.py --json results/verify.json
 - [ ] 注意别把「机器被别人共享」当成自己的结论（`nvidia-smi` 看有没有别的进程）
 
 **下机前**
-- [ ] `python run_labs.py collect`（或手动打包 `results/`）
+- [ ] `python code/run_labs.py collect`（或手动打包 `results/`）
 - [ ] **确认数据已经拉走并在本地能打开**
 - [ ] 记下花了多少钱、哪个实验最值得
 
@@ -528,7 +528,7 @@ torchrun --nproc_per_node=2 verify_collectives.py --json results/verify.json
 
 ```bash
 # 0:00 上机，5 分钟环境
-python provision_rented_gpu.py | tee env_report.txt
+python code/provision_rented_gpu.py | tee env_report.txt
 nvidia-smi topo -m | tee topo.txt
 
 # 0:05 all-reduce 扫描（15 分钟）★ 最重要

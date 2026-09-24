@@ -23,8 +23,8 @@
 
 ```bash
 # 会自动定位 vLLM checkout；也可以显式指定
-python verify_citations.py
-VLLM_REPO=/path/to/vllm python verify_citations.py
+python code/verify_citations.py
+VLLM_REPO=/path/to/vllm python code/verify_citations.py
 
 # ch06 里 200+ 条简写引用的存在性烟测
 python check_ch06_citations.py

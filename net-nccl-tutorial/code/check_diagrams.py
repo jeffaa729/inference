@@ -119,7 +119,9 @@ def main() -> int:
     ap.add_argument("--list", action="store_true", help="only list blocks")
     args = ap.parse_args()
 
-    mds = sorted(p for p in HERE.glob("*.md"))
+    # 文档现在都在 docs/；HERE 仍是 code/（mermaid-cli 的 node_modules 找这里）
+    mds = sorted(p for p in (HERE.parent / "docs").glob("*.md"))
+    mds += sorted(p for p in HERE.parent.glob("*.md"))
 
     # Fence balance first: a broken fence makes everything downstream render as
     # code, so it is the highest-severity markdown problem we can detect here.

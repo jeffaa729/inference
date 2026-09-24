@@ -28,7 +28,7 @@ import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "figures"
+OUT = HERE.parent / "figures"      # figures/ 留在仓库根
 
 
 def _force_utf8() -> None:

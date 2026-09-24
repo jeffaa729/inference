@@ -70,7 +70,7 @@ NVIDIA 在 NVLink 上的宣传口径经常是「聚合」。例如 H100 的 NVLi
 上面那张表是「点」，这张图是「线」—— **有效带宽随消息大小变化**。
 这是面试里区分「背过概念」和「算过账」的地方：
 
-![all-reduce 有效带宽 vs 消息大小](figures/alpha-beta-bandwidth.svg)
+![all-reduce 有效带宽 vs 消息大小](../figures/alpha-beta-bandwidth.svg)
 
 **怎么读这张图**（三条曲线都是 ring all-reduce，N=8）：
 
@@ -91,7 +91,7 @@ NVIDIA 在 NVLink 上的宣传口径经常是「聚合」。例如 H100 的 NVLi
    所以「小消息优化」在 NVLink 上收益更集中、也更值得做。
 
 > 📐 这张图由 `make_figures.py` 生成（纯 Python，不依赖 matplotlib），
-> `python make_figures.py` 可重新生成；改 α / 带宽参数就能画出你自己硬件的版本。
+> `python code/make_figures.py` 可重新生成；改 α / 带宽参数就能画出你自己硬件的版本。
 > 用 `check_figures.py` 验证图的合法性。
 
 ---
