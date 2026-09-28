@@ -1,186 +1,31 @@
 # 面试篇：270 题
 
-> **这是本材料唯一的题库。**
-> 原来的附录 G（JD 反推 31 题）、附录 H（真实面经 20 题）、附录 I（CUDA 内核 60 题）
-> 以及 ch06 的 53 题已经**全部合并到这里**，去重后重新编排。
->
-> **答案写成「要点 + 必须说出的数字」**，不是 1–2 分钟的逐字稿 ——
-> 因为面试现场你要的是**记得住的关键点**，而不是背下来的段落。
-> （口语化的完整版本请看对应章节的正文。）
-
----
-
-## 导读 0：这份题库是怎么来的（口径与诚实声明）
-
-**四个来源，四个不同的可信度等级**：
-
-| 来源 | 提供什么 | 可信度 |
-|---|---|---|
-| **大厂实习 JD**（字节 / 阿里 / 腾讯 / 华为 / 百度 / 快手 / 蚂蚁 / 商汤 / 地平线 / 寒武纪 / MiniMax 等） | **考点范围**：哪些技术在要求里反复出现 | JD 是官方文本；但**「要求」≠「面试题」**，只能定范围 |
-| **公开面经真题**（牛客、GitHub 面经仓库、知乎等） | **真实题目与原话** | 第三方整理，可能失真；**当「高频方向」而非「精确题库」** |
-| **本材料正文**（ch01–ch08、附录 E/F） | vLLM 源码级事实与工程结论 | 代码引用经脚本校验（63/63 精确命中） |
-| **一本 459 页的 CUDA kernel 优化专著** | 内核层的量化结论与实测数字 | **二手实测**：数字转录自该书，测试机是 RTX PRO 5000 72GB（`sm_120a`，CUDA 13.2）。**绝对数字不可迁移到 A100/H100，架构级结论可迁移** |
-| **[xlite-dev/LeetCUDA](https://github.com/xlite-dev/LeetCUDA)**（配套代码仓库） | **§7 手撕题的参考实现**（宏命名、启动形状、数据流骨架） | **一手源码**：本地 checkout 的 HEAD `6c86259`（2026-09-22）。§7 的宏与工具函数**逐字对齐**它，溯源表见 §7.0 |
-
-**三条必须知道的边界**：
-
-1. **数字是「别人测的」或「量级估算」**，不是我在你的卡上测的。本机只有一张 RTX 4060 Laptop 8 GB，
-   没有 TMA / WGMMA / FP4 / RDMA 硬件路径。
-   **面试时说「我看到一份资料测出来是 X」比说「我测过是 X」更安全 —— 除非你真的测过。**
-2. **面经来自第三方**，无法向公司核实；某一篇牛客原文只公开了前 9 题。
-3. **答案是我写的要点，不是官方答案。** 面试官想听的重点在每个岗位都不一样。
-
----
-
-## 导读 1：大厂实习 JD 到底要什么（考点分布）
-
-**实抓结果**：从公开渠道抓到 **17 家公司**的实习 JD 逐字原文
-（字节、阿里（含 A Star）、腾讯、华为、昆仑芯（百度）、快手、美团、蚂蚁、商汤、
-寒武纪、地平线、摩尔线程、壁仞、无问芯穹、阶跃星辰、智谱、月之暗面）。
-**按出现该要求的公司数排序**：
-
-| 要求 | 出现公司数 | 说明 | 对应本库 |
+<!-- TOC:BEGIN -->
+| 章 | 题号 | 题数 | 内容 |
 |---|---|---|---|
-| **Python** | **15** | 几乎无门槛，但会问 Python 的 GIL / 内存 / 并发 | §9.1 |
-| **C++** | **13** | 不是「会语法」，而是**能读能改**（模板、指针、内存布局、并发） | §2.4、§2.3 |
-| **CUDA / GPU 编程与架构** | **9** | 算子岗、推理优化岗的核心。原文常见：「熟悉 CUDA 编程与性能优化」 | §3 |
-| **分布式训练 / 并行策略 / 通信库（NCCL、NVLink、RDMA）** | **9** | AI Infra 平台岗核心。**昆仑芯把「熟悉 NCCL 集合通信库 / RDMA 高性能网络协议」写进硬性要求** | §5 |
-| **推理框架**（vLLM / SGLang / TensorRT-LLM） | **8** | 常搭配「PagedAttention / continuous batching / 量化 / 投机解码」 | §4 |
-| **算子 / kernel 优化** | **8** | 与 CUDA 那条常同时出现，但强调**有实际优化经验** | §3、§6 |
-| **PyTorch 等深度学习框架** | **8** | 会问「你读过它的哪部分源码」 | §4 |
-| **开源贡献 / GitHub 项目** | **8** | **这条是可提前准备的硬通货** | §9.4 |
-| **顶会论文** | **7** | 偏研究岗（Seed / A Star 类）权重更高 | §9.4 |
+| **§2** | Q1–Q55 | 55 | 计算机基础：cache / 存储层次 / OS / 并发 / 浮点 / C++ |
+| **§3** | Q56–Q91 | 36 | CUDA 与算子优化：架构 / 访存 / Roofline / GEMM / TMA / FA |
+| **§4** | Q92–Q131 | 40 | 推理框架层：PagedAttention / 调度 / 量化 / 显存 / 指标 / MoE / Attention 后端 |
+| **§5** | Q132–Q160 | 29 | 分布式与通信：并行策略 / 集合通信与 NCCL / 通算融合 / MoE 通信 / KV 传输 |
+| **§6** | Q161–Q175 | 15 | 性能分析与排障：nsys/ncu / 指标字典 / 排查顺序 |
+| **§7** | Q176–Q190 | 15 | **CUDA 与算子手撕题**（15 道完整可编译 kernel，代码全文） |
+| **§8** | Q191–Q200 | 10 | 系统设计（开放题） |
+| **§9** | Q201–Q225 | 25 | 补充：工具链 / 精度 / 分布式杂项 / 前沿名词 |
+| **§10** | Q226–Q255 | 30 | SOTA 模型架构：DeepSeek / Qwen / Kimi / Omni + 官方数字速查 + 易错清单 |
+| **§11** | Q256–Q262 | 7 | 并行策略深挖：TP / DP / PP / EP / CP 的通信量与选型 |
+| **§12** | Q263–Q270 | 8 | SOTA 算子全景：这一代开源模型在用的 kernel 清单 |
+| **合计** | **Q1–Q270** | **270** | |
+<!-- TOC:END -->
 
-> **两条最值得注意的观察**：
-> **① 通信能力被写进硬性要求的比例（9/17）和 CUDA 一样高** ——
-> 这正好印证本材料把 ch01–ch08 当主干是对的。
-> **② 「开源贡献」出现在 8 家** —— 它是一个**可以在面试前 3 个月开始积累**的加分项，
-> 比多背 20 道八股的边际收益高。
+**图例**
 
-**按公司风格的差异**（从 JD 措辞与公开面经归纳，属 `(推断)`）：
-
-| 倾向 | 典型岗位 | 面试重心 |
-|---|---|---|
-| **偏推理框架 / 引擎** | 字节 Seed、阿里 A Star、月之暗面、阶跃星辰、智谱、无问芯穹 | scheduler、KV cache、量化、投机解码、TTFT/TPOT 指标 |
-| **偏算子 / 内核** | 华为昇腾、寒武纪、壁仞、摩尔线程、地平线、昆仑芯 | CUDA/CANN、kernel 优化手法、bank conflict、Tensor Core、量化算子 |
-| **偏分布式 / 通信** | 字节 AI Infra、腾讯云原生、阿里云、昆仑芯、阶跃星辰（高性能网络系统工程师） | NCCL、并行策略、通信重叠、MoE all-to-all、集合通信算法 |
-| **偏编译器 / 图优化** | 阿里（含编译）、华为、字节 | 算子融合、图优化、IR、codegen、Triton |
-| **偏平台 / SRE** | 各家的 AI 平台部门 | 指标体系、OOM、容错、可观测性、部署 |
-
-**三条从 JD 与面经里读出来的「非技术」信息**（往往比多背 20 道题重要）：
-
-1. **项目会被反复深挖。** ★ **这是全网出现频次最高的题（99 次）** ——
-   远超第二名。真实面经显示一二三面**每轮都问项目**，而且越问越深
-   （「介绍」→「深入介绍」→「创新点和工业效果」）。
-   **准备好一个能讲三层深度的项目，比多背 20 道八股重要。**
-2. **动手题的形式分两种，别搞混。** 公开面经显示：
-   **推理框架/平台岗**考的是**通用算法题**（中等难度 + 图论，没有 hard）——
-   那类题请直接刷题站，**本库不收**；
-   **算子/CUDA 岗**考的往往是**白板写 kernel**（"写个 block 归约""写个 tiled GEMM"），
-   **这才是本库 §7 那 15 道题存在的理由**。
-3. **基础题占比超预期。** 真实面经里，AI Infra 一面**近一半是计算机基础**
-   （cache line、页表、虚函数表、原子操作），而不是 CUDA。
-   **「AI Infra 岗只考 CUDA」是错的。**
-
-### 公开面经里出现频次最高的 8 道题
-
-（统计口径：从 181 篇逐帖标注公司+轮次的面经、共 1780 条题干做**语义归并**后的频次。
-**这是「问到几次」而不是「多少家公司问」，且来源是二次汇编，仅供参考**。）
-
-| 排名 | 题目 | 频次 | 本库位置 |
-|---|---|---|---|
-| 1 | **请介绍 / 深入介绍你的项目经历与实习工作内容** | **99** | Q175、§8 |
-| 2 | 推理框架（vLLM / TensorRT-LLM / SGLang）的原理、对比与选型 | 40 | Q104、§4 |
-| 3 | **大模型量化的基本原理与具体实施流程** | 30 | Q80–Q87、Q184 |
-| 4 | **CUDA 算子的常见优化方法与一般流程** | 29 | §3、Q142 |
-| 5 | **KV Cache 的原理与优化 / 压缩方法** | 26 | Q71–Q74、Q190 |
-| 6 | **GEMM 的实现思路与优化方法** | 25 | Q52–Q61 |
-| 7 | Shared Memory 的使用方式、优化与注意事项 | 20 | Q42–Q46 |
-| 8 | FlashAttention 的核心原理 / 加速原因 | 19 | Q105–Q108 |
-
-> **读这张表的三个结论**：
-> ① **第 1 名的频次（99）是第 2 名（40）的 2.5 倍** ——
-> **面试的重心是「你做过什么」，不是「你知道什么」。**
-> ② 第 3–8 名全部落在**量化 / CUDA 算子 / KV cache / GEMM / smem / FlashAttention** ——
-> **这六块就是算子与推理优化岗的全部主战场**，本库的 §3、§4、§7、§9.2 正好覆盖。
-> ③ **没有一道是纯八股定义题** —— 全部是「原理 + 怎么做」的形式。
-> **答题时一定要落到"我会怎么做"，而不是停在定义。**
-
-> **⚠️ 抓取不到的部分（诚实声明）**：
-> `jobs.bytedance.com`（含移动版）与飞书招聘域名是 **SPA** ——
-> `web_fetch` 返回 **HTTP 200 但正文为空**；同样抓不到的还有
-> `zhaopin.meituan.com`、`hr.sensetime.com`、`shixiseng.com`、`zhihu.com`、
-> CSDN（403/521 反爬）。
-> **MiniMax、DeepSeek、硅基流动、旷视、智谱 infra 团队没有公开可抓的实习 JD 页** ——
-> 这不是「它们不招」，而是**渠道不可抓**。
-> 上面两张表**只统计抓到原文的部分**，所以是**下限而不是全集**。
-
----
-
-## 导读 2：怎么用这份题库（三条路径 + 时间预算）
-
-**先做一次自测**：随机抽 20 题，**能说出关键数字的算过**。低于 12 题过 → 从 §2 顺序读。
-
-**本库的 11 个分区**（共 **270 题**）：
-
-| 分区 | 内容 | 题数 | 题号 |
-|---|---|---|---|
-| **§2** | 计算机基础（cache / 存储层次 / OS / 并发 / 浮点 / C++） | **55** | Q1–Q55 |
-| **§3** | CUDA 与算子优化（架构 / 访存 / Roofline / GEMM / TMA / FA） | 36 | Q56–Q91 |
-| **§4** | 推理框架层（PagedAttention / 调度 / 量化 / 显存 / 指标 / MoE） | 40 | Q92–Q131 |
-| **§5** | 分布式与通信（并行策略 / NCCL / 通算融合 / MoE 通信 / KV 传输） | 29 | Q132–Q160 |
-| **§6** | 性能分析与排障（nsys/ncu / 指标字典 / 排查顺序） | 15 | Q161–Q175 |
-| **§7** | **CUDA 与算子手撕题**（15 道 kernel，完整可编译代码） | 15 | Q176–Q190 |
-| **§8** | 系统设计（开放题，看结构） | 10 | Q191–Q200 |
-| **§9** | 补充（工具链 / 精度 / 分布式杂项 / 前沿名词） | 25 | Q201–Q225 |
-| **§10** | **SOTA 模型架构与推理**（DeepSeek MLA/DSA/V4 / Qwen GQA+QK-Norm+Omni / Kimi 长上下文 / 混合注意力之争） | **30** | Q226–Q255 |
-| **§11** | **并行策略深挖**（TP / DP / PP / EP / CP 的通信量、气泡、ZeRO、选型决策树） | **7** | Q256–Q262 |
-| **§12** | **SOTA 算子全景**（这一代开源模型用了哪些 kernel：indexer/稀疏、线性注意力、通算融合、量化后端、低延迟 GEMM） | **8** | Q263–Q270 |
-
-> **注**：本库**不含 LeetCode 算法题** —— 那类题请直接刷题站。
-> 这里只收「AI Infra 岗位面试真正会问的**专业题**」，
-> 其中 §7 那 15 道**白板写 kernel** 才是算子岗真正的「算法题」。
->
-> **§10 的定位**：JD 里写「熟悉主流大模型结构」时，考的就是这一章。
-> 它和 §9 的分工是：**§10 讲机制与 tradeoff，§9 补名词**。**先读 §10。**
->
-> **⚠️ 时效性**：§10 的模型**按月迭代**。那里的数字标注了来源，
-> **与官方最新技术报告不一致时以官方为准**；参数表请查你手上的 `config.json`。
-
-| 你的情况 | 读什么 | 时间 |
-|---|---|---|
-| **3 天内要面算子岗** | **§7（手撕）全部** + §3 全部 + §6 全部 + §2 的 Q31–Q55（浮点与 cache 进阶） | 10h |
-| **3 天内要面推理框架岗** | §4 全部 + §6 + **§10（模型结构）** + §2 的 Q1–Q18 | 10h |
-| **3 天内要面分布式/通信岗** | §5 全部 + §6 + §2 的 Q1–Q7 | 8h |
-| **3 天内要面「模型 + 部署」混合岗** | **§10 全部** + §4 的 Q92–Q106（KV cache 与量化）+ §5 的 Q128–Q130（MoE 通信） | 8h |
-| **有一周** | §2 → §3 → §4 → §5 → §6 → §10，再手写一遍 §7、挑几道 §8 练手 | 35h |
-| **只有 1 天** | **§2 全部（计算机基础最容易被漏）+ §4 的 Q92–Q117 + §5 的 Q132–Q138 + §6 + §10 的 Q226/Q235/Q236/Q243** | 6h |
-| **只有 3 小时** | **§7 的 Q176/Q177/Q182（三个必考 kernel 骨架）+ §2 的 Q1–Q7、Q31、Q48–Q53 + §10 的 Q226/Q228/Q235** | 3h |
-| **面试前 10 分钟** | 每题的**加粗数字**扫一遍 + [导读 1](#导读-1大厂实习-jd-到底要什么考点分布) 的 JD 对照表与「高频 8 题」 | 10min |
-
-**每题标签的含义**：
-
-| 标签 | 含义 |
-|---|---|
-| `[基础]` | 答不出会被判定为「没做过」 |
-| `[进阶]` | 决定你能不能过二面 |
-| `[hard]` | 加分项，答不出不影响 |
-| `[编程]` | 现场写代码 |
-| `[开放]` | 没有标准答案，看结构和 tradeoff |
-| `★` | **该主题最高频**，几乎必问 |
-
-**答案的读法**：`答·` 是必须说的；`数字·` 后面是**能显著加分**的具体数字；
-`坑·` 是这个问题的常见错误答案。
+- `答·` 必答要点　·　`数字·` 面试时要主动说出的数字　·　`坑·` 常见错答
+- 标签 `[基础]` `[进阶]` `[hard]` `[编程]` `[手撕]` `[开放]`；**★ = 最高频**
+- **口径**：内核层性能数字转录自一本 459 页 CUDA kernel 专著（测试机 **RTX PRO 5000 72GB / `sm_120a` / CUDA 13.2**），**绝对数字不可迁移到 A100/H100**；模型架构数字来自各家官方技术报告与 `config.json`；JD 与面经来自公开渠道。**数字都可能过期，用前核对你手上的版本。**
 
 ---
 
 ## §2 计算机基础（cache / OS / 并发 / C++）（Q1–Q55，55 题）
-
-> **这一节被严重低估。** 真实面经里，AI Infra 一面的**近一半**是这类题
-> （cache line、多级缓存、cache miss、页表、虚函数表、原子操作），
-> **而不是 CUDA**。原因很直接：面试官要确认你不是「只会调库」。
-> **§2.1–§2.2 是体系结构与存储，§2.3 是操作系统，§2.4 是并发，
-> §2.5 是 C++ 语言特性 —— 四块都可能被抽到。**
 
 ### 2.1 Cache 与存储层次
 
@@ -835,12 +680,6 @@ LayerNorm 后的少数维度、以及注意力 sink），
 
 ## §3 CUDA 与算子优化（Q56–Q91，36 题）
 
-> **这一节是算子 / CUDA / 推理优化岗的主战场。**
-> 面试官不指望你背出代码，但指望你能**讲清「每一步解决了什么问题、拿到了多少收益」**。
-> 每题的 `数字·` 都来自一份 459 页 kernel 专著的实测，测试机是
-> **RTX PRO 5000 72GB（`sm_120a`，110 SM，L2 96 MB，CUDA 13.2）** ——
-> **口径要说清，绝对数字不可迁移。**
-
 ### 3.1 GPU 架构与执行模型
 
 **Q56 `[基础]` ★ SM 里有什么？warp 是什么？**
@@ -1316,9 +1155,6 @@ producer 卡在等 consumer 的 barrier arrive，双向互等纯挂死**
 
 ## §4 推理框架层（Q92–Q131，40 题）
 
-> 这一节的详细讲解在 **附录 E**（`appendix-single-gpu.md`），
-> 源码引用在 **ch04**。**面推理框架岗时这一节优先于 §5。**
-
 ### 4.1 PagedAttention 与 KV cache
 
 **Q92 `[基础]` ★ PagedAttention 解决了什么问题？**
@@ -1763,10 +1599,6 @@ merge kernel 实测 **0.7849 ms / 1031.4 GB/s**（≈ 峰值 77%，搬 809.5 MB�
 
 ## §5 分布式与通信（Q132–Q160，29 题）
 
-> 详细讲解在 **ch01–ch05、ch07、ch08**；
-> 代码位置见 **`appendix-code-tour.md`**。
-> **面分布式/通信/集群岗时这一节是主战场。**
-
 ### 5.1 并行策略
 
 > **这里是「一句话版」**；**通信量公式、流水气泡、ZeRO、EP vs TP、CP 的 ring attention、以及五者的组合决策树**都在 **§11（Q256–Q262）** —— 面分布式/训练/集群岗请直接跳那里。
@@ -2089,9 +1921,6 @@ IB 用 `ibstat` / `ibv_devinfo` 确认链路速率（HDR 200 Gb/s vs EDR 100 Gb/
 
 ## §6 性能分析与排障（Q161–Q175，15 题）
 
-> **这一节几乎必问**，因为它是「你到底动过手没有」的证据。
-> 详细内容在 **ch05（排障手册）** 与内核层的方法论部分。
-
 **Q161 `[基础]` ★ nsys 和 ncu 各自回答什么问题？为什么顺序不能反？**
 
 `答·` **nsys 是 trace 型**（记录 API/kernel/拷贝的时间戳，回答「**时间花在哪**」）；
@@ -2290,37 +2119,9 @@ L2 < 50% 且 DRAM > 40% ⇒ 工作集/L2 局部性问题；
 
 ## §7 CUDA 与算子手撕题（Q176–Q190，15 题）
 
-> **手撕题 = 完整代码 + 解析**。下面每题都给**能直接编译运行的完整 `.cu`**（不是片段），解析写在「解析要点」与代码注释里。
->
-> 面试时的白板纪律（比代码本身更重要）：
-> ① **先说出假设**（形状对齐？对齐到多少？N 是编译期常量吗？）；
-> ② **先写朴素版**，再说优化版 —— 直接写 vec4 版本容易在边界上翻车；
-> ③ **边界守卫一定要写**，并主动说清它防什么；
-> ④ **写下 grid / block 的取值**（向上取整的写法）；
-> ⑤ **最后补一句怎么测**（对拍对象 + 容差 + 极端形状）。
-
 <!-- BEGIN GENERATED SECTION-7 KERNELS (build_kernels.py) -->
 
-> **本节的代码全部是完整、可编译、可运行的 `.cu` 文件**，
-> 源码在 [`../code/interview/kernels/`](../code/interview/kernels/)，
-> 一键编译运行：`cd code/interview && ./build.sh --run all`（Windows 用 `build.ps1`）。
->
-> **本节由 `../code/interview/build_kernels.py` 从这 15 个 `.cu` 文件自动生成** ——
-> 所以 PDF / Markdown 里看到的代码就是编译器看到的代码，不会漂移。
->
-> 每个文件的结构统一为：**题面 → 解析要点 → 完整代码 → 测试用例**。
-> 代码注释保留「为什么这么写」的推理，**面试时能讲出注释里的取舍，比写出代码本身更重要**。
-
 ### §7.0 LeetCUDA 溯源（每题对应参考仓库的哪份实现）
-
-> **参考仓库**：[xlite-dev/LeetCUDA](https://github.com/xlite-dev/LeetCUDA)（本地 checkout `C:\Users\Jeff\Documents\GitHub\LeetCUDA`，引用锚点 **HEAD `6c86259`** —— 行号会漂，**符号名稳定**）
->
-> **本节的宏命名与工具函数刻意与参考仓库的 `kernels/interview/common.cuh` 对齐**：
-> `FLOAT4` / `HALF2` / `INT4`、`CP_ASYNC_CG` / `CP_ASYNC_COMMIT_GROUP` /
-> `CP_ASYNC_WAIT_GROUP`、`LDMATRIX_X4/X2/X2_T`、`HMMA16816` / `HMMA16816F32`、
-> `permuted<kColStride,kStep>` / `SwizzleBMS<B,M,S>`、`warpgroup_reg_alloc/dealloc`、
-> `make_smem_desc` / `tma_load_2d` / `tma_arrive_expect_tx`。
-> **所以在两边看到的写法是同一套** —— 你在 LeetCUDA 里学到的读法可以直接迁移。
 
 | 题 | 本节的实现 | LeetCUDA 参考实现（文件 · 符号） |
 |---|---|---|
@@ -2340,22 +2141,10 @@ L2 < 50% 且 DRAM > 40% ⇒ 工作集/L2 局部性问题；
 | **Q189** | [`q189_flash_attn.cu`](../code/interview/kernels/q189_flash_attn.cu) | `kernels/interview/flash_attn.cuh` · `FA2 MMA cp.async split-Q / FA2 TMA MMA WS / FA3 dual-consumer / FA Split-D`　— *★ 本节内层循环对应的完整实现（含 split-Q 与 WS 版本）*<br>`kernels/interview/ffpa_attn.cuh` · `FFPA：fp8/fp4 量化注意力`　— *再往前一步：scale 折叠与 split-D 的工程实现* |
 | **Q190** | [`q190_merge_attn.cu`](../code/interview/kernels/q190_merge_attn.cu) | `kernels/interview/base.cuh` · `merge_attn_states（kernel）`　— *★ LSE 合并的原始实现（本节的公式与之一致）*<br>`kernels/interview/notes-v2.cu` · `merge_attn_states 的 test/bench`　— *完整测试：跑 --help 可以看到 CLI 入口* |
 
-> **⚠️ 与参考仓库的 7 处有意差异**（完整说明在 [`../code/interview/kernels/lc_common.cuh`](../code/interview/kernels/lc_common.cuh) 头部）：
->
-> 1. **容差**：LeetCUDA 的 `.py` 里**没有 tol / 没有 `allclose` / 没有断言**（纯 benchmark，靠人眼看打印值）；它的 `notes-v2.cu` 对 attention 也只有一个 `max_err >= 5e-1f` 的失败判据。**「LeetCUDA 有三档容差」是个常见误解** ——那是它 README 里的**实测 Max Err 报告值**（F16Acc ~1.83e-4、F32Acc ~1.53e-5、FA3 双 WG ~9.16e-5）。本套件**自定义**三档判据（1e-3 / 5e-2 / 1e-2）+ CPU 对拍，判据硬得多；同时在 `lc_common.cuh` 里保留了 `TOL_LEETCUDA_FAIL` 与三个 `OBS_*` 常量，方便对照。
-> 2. LeetCUDA 的 build 开了 `--use_fast_math`；**本套件没开**，所以容差是保守的。
-> 3. **越界读的守卫**：LeetCUDA 的 `LDST128BITS`/`FLOAT4` 载入一律无守卫（`*_x16_pack` 连累加循环都没守卫）；本套件**统一二段式守卫**，能安全跑非对齐 N。
-> 4. **partial warp 哨兵**：LeetCUDA 的 softmax `case 32` 用 8 线程 block 跑全掩码 `__shfl_xor_sync(0xffffffff,…)`（UB）；本套件要么保证 block 是 32 的整数倍，要么让边界线程携带单位元。
-> 5. **参考实现的口径**：LeetCUDA 的 `naive_layer_norm` 用无偏 `std`（除 K-1）而 kernel 用有偏 `variance/K`；`naive_rms_norm` 没有 eps 而 kernel 有 `1e-5`。**本套件的 CPU 参考与 kernel 口径一致**。
-> 6. **不依赖 cuBLAS/cuDNN**：LeetCUDA 的 bench 会跟它们比；手撕题不需要基线库。
-> 7. **不复制 LeetCUDA 的拼写与已知注释-代码不一致**（`LANUCH_*` / `STRINGFY` / `DISPATCH_SATE_*`；bf16 reduce 注释说跨 warp 用 fp32 但代码是 bf16）。引用时会如实指出。
-
 **Q176 `[手撕]` ★ 向量加法 c = a + b**
 
 > **考点**：一线程一元素 / float4 二段式守卫 / grid-stride —— 三个版本对照
 > **源码**：[`../code/interview/kernels/q176_vecadd.cu`](../code/interview/kernels/q176_vecadd.cu)（153 行，sha256 `063af85592e7`）
-> **参考实现**：`kernels/relu/relu.cu`（`relu / relu_vec4`）、`kernels/elementwise/elementwise.cu`（`elementwise_add / elementwise_add_vec4`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q176_vecadd.cu — Q176：向量加法 c = a + b
@@ -2517,8 +2306,6 @@ int main() {
 
 > **考点**：XOR 蝶形归约 + block 两级归约：步数账、单位元、广播那一步为什么不能省
 > **源码**：[`../code/interview/kernels/q177_reduce.cu`](../code/interview/kernels/q177_reduce.cu)（276 行，sha256 `dc31d36dfce4`）
-> **参考实现**：`kernels/interview/base.cuh`（`warp_reduce_sum / warp_reduce_max / block_reduce_sum / block_reduce_all`）、`kernels/reduce/block_all_reduce.cu`（`block_all_reduce 各版本`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q177_reduce.cu — Q177：warp 内蝶形归约 + block 两级归约
@@ -2803,8 +2590,6 @@ int main() {
 
 > **考点**：原子版 vs 两级归约 vs vec4 —— 用数字证明「瓶颈不是访存指令数」
 > **源码**：[`../code/interview/kernels/q178_dot.cu`](../code/interview/kernels/q178_dot.cu)（200 行，sha256 `4ed76ceb28ff`）
-> **参考实现**：`kernels/interview/base.cuh`（`dot / dot_vec4`）、`kernels/dot-product/dot_product.cu`（`dot_product 各版本`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q178_dot.cu — Q178：dot product，以及"为什么 vec4 可能一点也不快"
@@ -3013,8 +2798,6 @@ int main() {
 
 > **考点**：fmaxf 而不是 if/else；融合省的是流量，不是 launch
 > **源码**：[`../code/interview/kernels/q179_elementwise.cu`](../code/interview/kernels/q179_elementwise.cu)（226 行，sha256 `653db7d8b51d`）
-> **参考实现**：`kernels/gelu/gelu.cu`（`gelu 变体`）、`kernels/interview/base.cuh`（`relu / elementwise_add`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q179_elementwise.cu — Q179：ReLU / elementwise 融合，以及"为什么用 fmaxf 不用 if"
@@ -3249,8 +3032,6 @@ int main() {
 
 > **考点**：原子代价模型与 smem 私有化的「次数账」（T > B 才有收益）
 > **源码**：[`../code/interview/kernels/q180_histogram.cu`](../code/interview/kernels/q180_histogram.cu)（188 行，sha256 `484377d78031`）
-> **参考实现**：`kernels/histogram/histogram.cu`（`histogram`）、`kernels/interview/base.cuh`（`histogram`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q180_histogram.cu — Q180：histogram（朴素全局原子 vs smem 私有化）
@@ -3447,8 +3228,6 @@ int main() {
 
 > **考点**：transpose + padding：bank conflict 的算术与「口径决定加速比」
 > **源码**：[`../code/interview/kernels/q181_transpose.cu`](../code/interview/kernels/q181_transpose.cu)（240 行，sha256 `f8c416b417e8`）
-> **参考实现**：`kernels/mat-transpose/mat_transpose.cu`（`mat_transpose / mat_transpose_padded`）、`kernels/interview/base.cuh`（`mat_transpose / mat_transpose_padded`） 等 3 处
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q181_transpose.cu — Q181：矩阵转置（smem + padding 打散 bank conflict）
@@ -3697,8 +3476,6 @@ int main() {
 
 > **考点**：两趟 vs 一趟（单 pass）与 Welford；减少流量 vs 减少指令的区别
 > **源码**：[`../code/interview/kernels/q182_norm.cu`](../code/interview/kernels/q182_norm.cu)（317 行，sha256 `fa10ee9af2b9`）
-> **参考实现**：`kernels/rms-norm/rms_norm.cu`（`rms_norm / rms_norm_vec4`）、`kernels/layer-norm/layer_norm.cu`（`layer_norm / layer_norm_vec4`） 等 3 处
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q182_norm.cu — Q182：RMSNorm / LayerNorm（归一化算子的两种实现与一趟方案）
@@ -4024,8 +3801,6 @@ int main() {
 
 > **考点**：tiled SGEMM：三个 AI 公式、两道 __syncthreads、`/` 与 `%` 的索引法则
 > **源码**：[`../code/interview/kernels/q183_sgemm.cu`](../code/interview/kernels/q183_sgemm.cu)（275 行，sha256 `78750a11e600`）
-> **参考实现**：`kernels/sgemm/sgemm.cu`（`sgemm 阶梯（naive -> tile -> vec4）`）、`kernels/interview/sgemm.cuh`（`Phase 7a 的 SGEMM`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q183_sgemm.cu — Q183：tiled SGEMM（shared memory + thread tile + vec4）
@@ -4309,8 +4084,6 @@ int main() {
 
 > **考点**：寄存器双缓冲 + XOR swizzle（含对合性自检与 padding 对照）
 > **源码**：[`../code/interview/kernels/q184_sgemm_dbuf.cu`](../code/interview/kernels/q184_sgemm_dbuf.cu)（391 行，sha256 `ad87afee2608`）
-> **参考实现**：`kernels/interview/common.cuh`（`permuted<kColStride,kStep> / SwizzleBMS<B,M,S>`）、`kernels/swizzle/hgemm_mma_swizzle.cu`（`swizzle 版 HGEMM`） 等 4 处
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q184_sgemm_dbuf.cu — Q184：寄存器双缓冲 + XOR swizzle 打散 bank conflict
@@ -4710,8 +4483,6 @@ int main() {
 
 > **考点**：cp.async 多级流水：commit/wait_group 语义、wait 后为什么还要同步
 > **源码**：[`../code/interview/kernels/q185_sgemm_async.cu`](../code/interview/kernels/q185_sgemm_async.cu)（291 行，sha256 `2b54af484a30`）
-> **参考实现**：`kernels/sgemm/sgemm_async.cu`（`cp.async 多 stage 版 SGEMM`）、`kernels/sgemm/sgemm_wmma_tf32_stage.cu`（`TF32 WMMA + stage`） 等 3 处
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q185_sgemm_async.cu — Q185：软件流水（cp.async 多级 stage）
@@ -5011,8 +4782,6 @@ int main() {
 
 > **考点**：mma.sync m16n8k16 + ldmatrix 手写 HGEMM（对照 WMMA 版）
 > **源码**：[`../code/interview/kernels/q186_hgemm_mma.cu`](../code/interview/kernels/q186_hgemm_mma.cu)（319 行，sha256 `30fda8f31f9a`）
-> **参考实现**：`kernels/interview/hgemm.cuh`（`Phase 7b-d 的 HGEMM 全部阶梯`）、`kernels/interview/common.cuh`（`HMMA16816 / HMMA16816F32 / LDMATRIX_X4 / LDMATRIX_X2 / LDMATRIX_X2_T`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q186_hgemm_mma.cu — Q186：Tensor Core HGEMM（mma.sync m16n8k16 + ldmatrix + 3 级流水）
@@ -5340,8 +5109,6 @@ int main() {
 
 > **考点**：TMA + mbarrier + WS 骨架：arrive count 怎么算、账本不闭合的两种后果
 > **源码**：[`../code/interview/kernels/q187_hgemm_ws_tma.cu`](../code/interview/kernels/q187_hgemm_ws_tma.cu)（262 行，sha256 `715944e09f27`）
-> **参考实现**：`kernels/interview/common.cuh`（`make_smem_desc / tma_load_2d / tma_arrive_expect_tx / warpgroup_reg_*`）、`kernels/interview/hgemm.cuh`（`WGMMA m64n128k16 + TMA MMA WS`） 等 3 处
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q187_hgemm_ws_tma.cu — Q187：Warp Specialization（TMA + mbarrier）骨架
@@ -5612,8 +5379,6 @@ int main() {
 
 > **考点**：naive / safe / online 三版 softmax，含「溢出用例」与带宽对照
 > **源码**：[`../code/interview/kernels/q188_softmax.cu`](../code/interview/kernels/q188_softmax.cu)（229 行，sha256 `44d0d7af90a0`）
-> **参考实现**：`kernels/interview/base.cuh`（`softmax_per_token / safe_softmax_per_token / online_safe_softmax_per_token / warp_reduce_md / MD`）、`kernels/softmax/softmax.cu`（`softmax 各版本`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q188_softmax.cu — Q188：per-token 的 safe softmax 与 online softmax
@@ -5851,8 +5616,6 @@ int main() {
 
 > **考点**：FlashAttention 内层循环：online rescale 五步 + 与朴素版的显存账对照
 > **源码**：[`../code/interview/kernels/q189_flash_attn.cu`](../code/interview/kernels/q189_flash_attn.cu)（261 行，sha256 `f690035644c6`）
-> **参考实现**：`kernels/interview/flash_attn.cuh`（`FA2 MMA cp.async split-Q / FA2 TMA MMA WS / FA3 dual-consumer / FA Split-D`）、`kernels/interview/ffpa_attn.cuh`（`FFPA：fp8/fp4 量化注意力`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q189_flash_attn.cu — Q189：FlashAttention 的内层循环（online rescale）
@@ -6122,8 +5885,6 @@ int main() {
 
 > **考点**：merge_attn_states：LSE 合并、两套口径不可混搭、空段退化
 > **源码**：[`../code/interview/kernels/q190_merge_attn.cu`](../code/interview/kernels/q190_merge_attn.cu)（270 行，sha256 `ed524a9abf67`）
-> **参考实现**：`kernels/interview/base.cuh`（`merge_attn_states（kernel）`）、`kernels/interview/notes-v2.cu`（`merge_attn_states 的 test/bench`）
-> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里那些你不认同的取舍。
 
 ```cuda
 // q190_merge_attn.cu — Q190：merge_attn_states（LSE 合并，用于 split-KV / FlashDecoding）
@@ -6404,9 +6165,6 @@ int main() {
 
 ## §8 系统设计（Q191–Q200，10 题）
 
-> **这类题没有标准答案，看的是结构。** 通用框架：
-> **先问清约束（QPS/延迟 SLO/模型大小/硬件）→ 给方案 → 说 tradeoff → 说怎么验证。**
-
 **Q191 `[开放]` ★ 设计一个支持 1000 QPS 的推理服务**
 
 `答·` 四步：
@@ -6504,9 +6262,6 @@ int main() {
 ---
 
 ## §9 补充：那些「会就是会、不会就是不会」的知识点（Q201–Q225，25 题）
-
-> 这些题目分散在各个主题里，但**在 JD 里反复出现**，
-> 而且**答不出来会让面试官直接判定「技能栈不匹配」**。
 
 ### 9.1 工具链与工程
 
@@ -6739,31 +6494,6 @@ HF3FS connector 的 metadata URL 读了不用（死配置）、
 ---
 
 ## §10 SOTA 模型架构与推理（DeepSeek / Qwen / Kimi 这一代）（Q226–Q255，30 题）
-
-> **这是 2024–2026 这一代模型的架构题。** JD 里常见的措辞是
-> 「熟悉主流大模型结构」「了解 MoE / 长上下文方案」「有 Qwen / DeepSeek 系列适配经验」，
-> 面试里就体现为：**能不能把 MLA、细粒度专家、GQA、混合线性注意力这些讲清楚，
-> 并说出它对你部署的模型意味着什么**。
->
-> **为什么单独成章**：§4 讲的是「框架怎么跑模型」，§9.4 讲的是「前沿名词」，
-> 但**模型结构本身**（注意力怎么压缩、专家怎么路由、多模态怎么对齐）
-> 是另一层知识 —— 它决定了 KV cache 有多大、all-to-all 有多少流量、
-> 长上下文能不能真的用得起。**面试官问「你了解 Qwen 吗」时想要的是这一层。**
->
-> ---
->
-> **⚠️ 时效性与口径声明（先读）**：
->
-> | 项 | 说明 |
-> |---|---|
-> | **时效** | 这一代模型迭代以「月」为单位。**下面的数字标注了来源与时间**；如果和你看的官方技术报告不一致，**以官方为准** |
-> | **两类事实要分开** | ① **官方技术报告的数字**（可引用、可核对）；② **社区实测/推测**（标注 `(社区)`）。面试里说「报告里写的是 X」比说「我记得是 X」安全 |
-> | **不要背参数表** | 面试官问「Qwen3-235B 有多少专家」的概率，远低于问「**MoE 为什么省算力不省显存**」。**参数只是用来支撑结论的**，不是知识本身 |
-> | **结构题的正确答法** | 一定是三段：**它解决什么问题 → 怎么解决（机制） → 代价是什么（对部署的影响）**。只背机制不给代价，会被追问到崩 |
-> | **§9 已有的** | MHA/GQA/MQA 的对比、KV cache 公式、MLA 一句话介绍、MoE all-to-all 的 wire format —— 这里**只补结构层**，不重复 |
-> | **想看精确数字** | 用 **J.8 官方数字速查**（DeepSeek / Qwen / Kimi-MiniMax-GLM 三张表 + KV cache 对照），每个数字都标了官方出处 |
-> | **想知道哪里最容易答错** | 用 **J.9 易错点与「不要编造」清单** —— 18 条高频错答 + 一张「公开资料里确实查不到」的表 |
-> | **最新一代在哪** | **J.5（Q251–Q255）** 讲 2025–2026 的方向：DeepSeek-V4 的混合注意力、V3.2 的 DSA、Kimi K2 砍头数、MiniMax M2 退回全注意力、Qwen3 双模式对框架的影响 |
 
 ---
 
@@ -7417,35 +7147,16 @@ vLLM 侧同名开关是 `--default-chat-template-kwargs '{"chat_template_kwargs"
 
 ---
 
-### J.6 与前面章节的交叉引用（别重复学）
-
-| 想深入 | 去哪 |
-|---|---|
-| MHA / GQA / MQA / MLA 的对比与 KV cache 公式 | **§4.1 Q94**（KV cache 估算）、**§10 Q235**（MHA/GQA/MQA）、**Q226 + Q232**（MLA）、§9.4 Q215–Q217 |
-| 量化的格式、粒度、精度回归 | **§4.3 Q103–Q110**、**§9.2 Q208–Q210**、§2.7 Q48–Q53 |
-| MoE 的 all-to-all、EP、EPLB、wire format | **§4.7 Q120–Q124**、**§5.4 Q151–Q153** |
-| MoE 的通信融合（MegaMoE、对称内存） | **附录 F**（`docs/appendix-megamoe.md`）、**§4.7 Q123–Q124**、§5.3 Q146–Q150 |
-| 长上下文的调度与 PD 分离 | **§4.2 Q98–Q102**、**§5.5 Q154–Q156** |
-| attention kernel 与 head_dim 的墙 | **§3.1 Q60**（寄存器墙与 M4N2 atom）、**§3.4 Q77**（m16n8k16）、**§4.9 Q127–Q131**（FA）、§10 Q237 |
-| 多模态模型的部署形态 | 本附录 J.2（Q239–Q242） |
-| 投机解码（MTP 的原型） | **§4.2 Q101**（投机解码）、§10 Q230（MTP） |
-| MLA 的压缩与吸收（V4 / DSA 的前提） | 本附录 Q226、Q227、J.5 的 Q251–Q252 |
-| 混合线性注意力 vs 全注意力（该站哪边） | 本附录 Q244–Q245、J.5 的 Q254 |
-| 输出长度对调度/显存的影响 | **§4.2 Q98–Q102**、**§4.4 Q111–Q113**、J.5 的 Q255 |
-| **并行策略的深挖（TP / DP / PP / EP / CP）** | **§11（Q256–Q262）**、§5.1 Q132–Q135、ch04 §4.5–§4.6 |
-
----
-
-### J.7 本章的边界（诚实声明）
+### J.6 本章的边界（诚实声明）
 
 | 项 | 说明 |
 |---|---|
 | **时效性** | 这些模型**按月迭代**。J.1–J.4 覆盖 2024–2025 的**机制**，J.5 覆盖 2025–2026 的**方向**；**与官方最新报告不一致时以官方为准** |
-| **参数表** | 本章**刻意不把参数表当正文** —— 会过期，而且**背参数不是这份材料的目的**。要数字请用 **J.8 的速查表**，再回你手上那份 `config.json` 或官方模型卡核对 |
+| **参数表** | 本章**刻意不把参数表当正文** —— 会过期，而且**背参数不是这份材料的目的**。要数字请用 **J.7 的速查表**，再回你手上那份 `config.json` 或官方模型卡核对 |
 | **架构细节的深度** | MLA 的**吸收技巧**、MoE 的**路由与负载均衡**、**QK-Norm**、**TMRoPE** 这些是**机制级**的讲解；但**具体到某个模型的超参组合**（几层线性几层全注意力、专家数）**必须以官方配置为准** |
-| **实测性能** | 本章**没有给吞吐/延迟数字** —— 那些高度依赖硬件、batch、并行配置，**必须自己测**（`code/provision_rented_gpu.py` + `code/run_labs.py`）。**唯一例外是 J.8 里带硬件口径的官方数字**，引用时必须连口径一起说 |
+| **实测性能** | 本章**没有给吞吐/延迟数字** —— 那些高度依赖硬件、batch、并行配置，**必须自己测**（`code/provision_rented_gpu.py` + `code/run_labs.py`）。**唯一例外是 J.7 里带硬件口径的官方数字**，引用时必须连口径一起说 |
 | **与 §9 的关系** | §9.4 是「会就是会」的名词速查；本章是**机制与 tradeoff**。**先看本章，再用 §9.4 补名词** |
-| **研究来源** | 本章与 J.8/J.9 的数字来自**各家官方技术报告、官方 `config.json` / model card、vLLM 与 transformers 源码、以及 vLLM recipe**。这轮调研的逐条出处（含「未找到」清单）在 `_sota_ref/` 下：`deepseek.md`、`qwen.md`、`kimi_minimax_glm.md` |
+| **研究来源** | 本章与 J.7/J.8 的数字来自**各家官方技术报告、官方 `config.json` / model card、vLLM 与 transformers 源码、以及 vLLM recipe**。这轮调研的逐条出处（含「未找到」清单）在 `_sota_ref/` 下：`deepseek.md`、`qwen.md`、`kimi_minimax_glm.md` |
 
 **最后一条建议**：结构题的核心不是"知道多少模型"，
 而是**"看到一个结构，能推断出它对部署意味着什么"**。
@@ -7453,14 +7164,14 @@ vLLM 侧同名开关是 `--default-chat-template-kwargs '{"chat_template_kwargs"
 
 ---
 
-### J.8 官方数字速查（可引用的精确值）
+### J.7 官方数字速查（可引用的精确值）
 
 > **用法**：面试里说「**官方报告里写的是 X**」远比说「我记得是 X」安全。
 > 下表每个数字都来自官方技术报告 / 官方 `config.json` / 官方 model card / 官方部署指南；
 > **标 `(推)` 的是本材料按官方数字的算术推导**，引用时要么自己再算一遍、要么别说。
 > **引用性能数字必须连硬件口径一起说**，否则会被追问到崩。
 
-#### J.8.1 DeepSeek（V3 / V3.2 / V4）
+#### J.7.1 DeepSeek（V3 / V3.2 / V4）
 
 | 项 | 值 |
 |---|---|
@@ -7481,7 +7192,7 @@ vLLM 侧同名开关是 `--default-chat-template-kwargs '{"chat_template_kwargs"
 | V3.2 的 DSA | top-k **2048**（token 级）；indexer **64 头 × 128 维**，**ReLU + FP8**；indexer 的 K cache 也是 blockwise FP8。**⚠️ `rotate_activation()`（常被称作 Hadamard 旋转）只存在于官方参考实现里，README 与技术报告均未点名**；warm-up **2.1B** tokens / sparse **943.7B** tokens；官方 H800 SXM5 数字 **640 / 410 TFLOPS**（dense / sparse） |
 | V4（2026-04） | **V4-Pro 1.6T / 49B**、**V4-Flash 284B / 13B**、上下文 **1M**；MLA → **滑窗 + CSA(m=4) + HCA(m'=128)**；残差改 **mHC**；打分改 `Sqrt(Softplus(·))`；去掉 `n_group/topk_group`；前几层 hash MoE。**(推) 稀疏度 1.6T/49B ≈ 33× vs V3 的 ≈ 18×** |
 
-#### J.8.2 Qwen（Qwen2.5 / Qwen3 / Qwen3-MoE / Omni）
+#### J.7.2 Qwen（Qwen2.5 / Qwen3 / Qwen3-MoE / Omni）
 
 | 项 | 值 |
 |---|---|
@@ -7500,7 +7211,7 @@ vLLM 侧同名开关是 `--default-chat-template-kwargs '{"chat_template_kwargs"
 | 服务化实测（vLLM-Omni 博客，3 GPU，c=64） | 音频 TTFP **5884 → 632 ms**、RTF **1.15 → 0.47**、吞吐 **2.2 → 11.7 req/s**；其中"异步分块交接"单项把 TTFP 砍掉 **77%** |
 | thinking 开关 | `enable_thinking`（**默认 True**）；`</think>` = **151668**；`<|im_start|>` / `<|im_end|>` = **151644 / 151645** |
 
-#### J.8.3 Kimi / MiniMax / GLM / Llama 4 / Step-3
+#### J.7.3 Kimi / MiniMax / GLM / Llama 4 / Step-3
 
 | 模型 | 关键数字 |
 |---|---|
@@ -7519,7 +7230,7 @@ vLLM 侧同名开关是 `--default-chat-template-kwargs '{"chat_template_kwargs"
 | **Seed-OSS-36B**（延伸） | 字节 Seed，**稠密**模型（config 无任何 MoE 字段）：64 层、hidden 5120、**80 Q / 8 KV**、`rope_theta 1e7`、**512K** 上下文、词表 155136；亮点是 **thinking budget** 而非新注意力 |
 | **ERNIE 4.5**（延伸） | 百度，**10 个变体**、MoE 两档激活 **47B / 3B**、最大 **424B 总**（`ERNIE-4.5-VL-424B-A47B`）；核心是**异构模态结构**（跨模态共享 + 每模态专属参数）+ modality-isolated routing；训练 **47% MFU**；推理侧称 **4-bit/2-bit 无损量化** |
 
-#### J.8.4 KV cache 每 token 实测/推导对照（BF16，每元素 2 字节）
+#### J.7.4 KV cache 每 token 实测/推导对照（BF16，每元素 2 字节）
 
 | 模型 | 元素 / token | BF16 / token | @128K | @1M |
 |---|---|---|---|---|
@@ -7554,12 +7265,12 @@ arXiv 2507.20534（K2）/ 2510.26692（Kimi Linear）/ 2501.08313（MiniMax-01�
 
 ---
 
-### J.9 易错点与「不要编造」清单
+### J.8 易错点与「不要编造」清单
 
-> **这一节可能比 J.8 更值钱。** 面试里**说错一个数**不如**说"这个我不确定"**；
+> **这一节可能比 J.7 更值钱。** 面试里**说错一个数**不如**说"这个我不确定"**；
 > 而下面这些点，恰恰是三方解读最容易讲反、面试官又最爱追的地方。
 
-#### J.9.1 高频易错点（答错即扣分）
+#### J.8.1 高频易错点（答错即扣分）
 
 | # | 容易说错的 | 正确的 |
 |---|---|---|
@@ -7582,7 +7293,7 @@ arXiv 2507.20534（K2）/ 2510.26692（Kimi Linear）/ 2501.08313（MiniMax-01�
 | 17 | 「MiniMax-01 的 RoPE base 是 10,000」 | **官方自己矛盾**：论文写 *base frequency set to 10,000*，发布 config 写 `rope_theta: 10000000`。**引用时必须说清是哪一份来源**（三方解读的 10k→5M→10M 分阶段说法**官方文本里没有**） |
 | 18 | 「FP8 的 scale 是任意浮点」 | DeepSeek 的 FP8 scale 走 **ue8m0 ⇒ 必为 2 的幂**（`s = amax/448` → `exp2(ceil(log2 s))`）；Hopper Tensor Core 累加只保留 **13 位尾数**（FP22 寄存器） |
 
-#### J.9.2 「不知道就别编」清单（三份底稿里明确标为「未找到」的）
+#### J.8.2 「不知道就别编」清单（三份底稿里明确标为「未找到」的）
 
 > **面试里最好的答案之一是「这个数字我没有可靠来源，我可以说说它的量级 / 怎么估」。**
 > 下面这些点**公开资料里确实没有**，硬答一定翻车。
@@ -7602,14 +7313,6 @@ arXiv 2507.20534（K2）/ 2510.26692（Kimi Linear）/ 2501.08313（MiniMax-01�
 ---
 
 ## §11 并行策略深挖：TP / DP / PP / EP / CP（Q256–Q262，7 题）
-
-> **为什么单独成章**：§5.1 给了四个策略的**一句话定义**（Q132–Q135），
-> ch04 §4.5 / §4.6 讲了 PP 的 P2P 与 DP attention 的代码。
-> 但面试真正会追问的是**「通信量是多少」「气泡多大」「为什么这么组合」** ——
-> 这一节把它们**逐个数出来**：每种并行的通信量公式、延迟特征、适合的互联、组合顺序。
->
-> **面分布式 / 训练 / 集群岗时，这一节比 §5.1 更重要**；
-> 面推理框架岗至少要会 **Q256（PP 的通信）、Q259（推理 DP 与 EP）、Q262（选型）**。
 
 ---
 
@@ -7753,7 +7456,7 @@ vLLM 里的实现是 `AgRsAll2AllManager.dispatch_router_logits`（`all2all.py:7
 attention 与 dense 层本来就很小（DeepSeek-V3 只有**前 3 层**是 dense），
 把它们复制 N 份的代价，远小于把 **256 个专家**切 N 份带来的收益。
 
-`数字·` 官方部署数据可以做旁证（见 J.8.1）：
+`数字·` 官方部署数据可以做旁证（见 J.7.1）：
 **TP4 + MTP-3** 时单并发 **TPOT 3.2344 ms / TTFT 425.99 ms**；
 而 **TP8 + EP8** 在批 256 下输出 **8618 tok/s**（per-GPU **1077.28**）。
 ⇒ **同样的卡数，"EP 那套"是给吞吐用的，"纯 TP 那套"是给单请求延迟用的** ——
@@ -7849,16 +7552,6 @@ CP 的 ring 只是**"我在等下一块 KV"** —— 等不到就先算别的，
 ---
 
 ## §12 SOTA 算子全景：这一代开源模型到底用了哪些 kernel（Q263–Q270，8 题）
-
-> **这一节回答一个很具体的问题：「你了解最新模型的 kernel 吗？」**
->
-> 全部清单来自 **本仓库 checkout 的源码**（vLLM `f015d08`，2026-09-09）
-> 与上游开源项目 —— **每条都给了文件路径或仓库名，可以当场搜**。
->
-> 与前面三节的分工：**§3 讲"一个 kernel 怎么写快"、§7 是"手撕"、本节讲"现在大家在写什么"**。
-> 面算子 / 推理优化岗时，**这一节最能体现你在跟进**；
-> 但也最容易翻车 —— 所以下面所有【实现】标注的内容，
-> **面试时请说"我在 vLLM 的代码里看到…"，而不是"业界标准做法是…"。**
 
 ---
 
@@ -8126,7 +7819,7 @@ vLLM 在 **2026-07-02 的 PR #47361 里删掉了 CUDA 版 PagedAttention v1 / v2
 **面试里说得出"vLLM 把 PagedAttention 的 CUDA 实现删了、改用统一 Triton kernel + FlashInfer"，
 比背 PagedAttention 的定义更能证明你在读代码。**
 
-> **⚠️ 一处必须纠正的常见错误（也是本材料 §10 J.9 的第 12 条陷阱）**：
+> **⚠️ 一处必须纠正的常见错误（也是本材料 §10 J.8 的第 12 条陷阱）**：
 > Llama 4 的 **`no_rope_layers` 字段名与语义相反** —— **`1` 表示"用 RoPE"，`0` 表示 NoPE**。
 > 因此 **`attention_chunk_size = 8192` 的 chunked local attention 作用在 RoPE 层（36 层），
 > 而 NoPE 层（12 层）才是全局 full attention**。
@@ -8390,30 +8083,3 @@ kernels/linear/
 ② 想说"选最快的 kernel"却说不出**判据是 (N,K,M) 三元组**；
 ③ 不知道**同一份 kernel 在不同芯片上的排名会翻转**（所以表不能合并）——
 **这一条几乎是"真的跑过 benchmark"的证明**。
-
----
-
-## 附：本库的边界与维护说明
-
-| 项 | 说明 |
-|---|---|
-| **题目来源** | 大厂实习 JD（定范围）+ 公开面经（真题，第三方整理、可能失真）+ 本材料正文（源码级事实）+ 一本 459 页 CUDA kernel 专著（内核层量化结论） |
-| **模型架构数字的口径** | §10 的模型数字来自**各家官方技术报告 / 官方 `config.json` / model card / 官方部署指南**，逐条出处见 `_sota_ref/` 下的三份底稿（含「未找到」清单）；**标 `(推)` 的是本材料按官方数字的算术推导**。面试引用时**必须连硬件口径一起说** |
-| **数字口径** | 内核层的性能数字**全部转录自那本专著**，测试机 **RTX PRO 5000 72GB（`sm_120a`，CUDA 13.2）**；**我无法在本机复现**（本机是单张 RTX 4060 Laptop 8 GB）。**绝对数字不可迁移到 A100/H100，架构级结论可迁移。** 面试时请说「我看到一份资料测出来是 X」 |
-| **答案性质** | 我写的要点，**不是官方答案**；每个岗位想听的重点都不同 |
-| **JD 与面经的来源** | JD 来自公开招聘页与第三方转载（**字节等公司的招聘页是 SPA，正文抓不到**）；面经来自牛客 / GitHub 面经仓库 / 知乎等 |
-| **没有覆盖的** | CUDA 语法入门（thread/block/grid 的基础用法）、cuBLAS/CUTLASS 的 API 用法、Triton 语法、Nsight 的 GUI 操作、K8s/调度器运维、以及各家**未公开**的面试题库 |
-| **手撕题（§7）的写法** | 给的是**能默写的骨架 + 关键点 + 怎么测**，不是可直接编译的完整工程。**面试前务必自己敲一遍并用 `nvcc` 跑通** —— 手撕题的唯一准备方式就是手写 |
-| **题量与结构** | 共 **270 题 / 11 个分区**。§2（55）+ §3（36）+ §4（40）+ §5（29）= **概念题主体**；**§7（15 道手撕 kernel）** 是唯一的动手题；§6（15）是方法论；§8（10 道设计）+ §9（25）+ **§10（30 道 SOTA 模型架构）** + **§11（7 道并行策略深挖）** + **§12（8 道 SOTA 算子）** 是补充分散考点。**不含 LeetCode 算法题** |
-| **怎么维护** | 代码与版本都会变。引用 vLLM 的地方，先跑 `python code/verify_citations.py`（应输出 `63/63`）；改动过本题库后，跑 `python code/check_diagrams.py`、`python code/check_appendix_cuda_numbers.py`，再跑 `python code/export_pdf.py` 重新导出 PDF |
-
-**最后一条建议**（来自真实面经最有价值的一条）：
-
-> **准备一个能讲三层深度的项目，比多背 20 道八股重要。**
-> 面试官真正想知道的不是「你知不知道 PagedAttention」，
-> 而是「**你在真实约束下做过什么决策、踩过什么坑、怎么验证的**」。
-
-
-
-
-

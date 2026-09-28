@@ -65,8 +65,8 @@
 | [`appendix-code-tour.md`](docs/appendix-code-tour.md) | vLLM 网络相关代码地图 + 六条读数路径 + 环境变量索引 + 可迁移的设计模式 | 2h |
 | [`appendix-single-gpu.md`](docs/appendix-single-gpu.md) | **附录 E：网络之外的半壁江山** —— PagedAttention / FlashAttention / continuous batching / 量化 / 投机解码 / prefix caching / 指标体系 / OOM。**面推理框架岗必读** | 6h |
 | [`appendix-megamoe.md`](docs/appendix-megamoe.md) | **附录 F：MegaMoE** —— 把整个 MoE 层压成一个 cooperative kernel；对称内存 / SM 死锁博弈 / `NCCL_MAX_CTAS=8` 的由来 / 动态 BLOCK_M。**前沿加分项** | 3h |
-| [`interview.md`](docs/interview.md) | **★ 面试篇：270 题** —— 本材料**唯一**的题库。按 11 个分区：**§2 计算机基础 55 题**（cache / OS / 并发 / 浮点 / C++）、§3 CUDA 与算子 36、§4 推理框架 40、§5 分布式通信 29、§6 性能分析 15、**§7 CUDA 与算子手撕题 15 题（完整可编译代码 + 解析，约 3900 行 CUDA）**、§8 系统设计 10、§9 补充 25、**§10 SOTA 模型架构 30 题**（DeepSeek MLA/DSA/V4、Qwen GQA+QK-Norm+Omni、Kimi 长上下文、混合注意力之争，**外加官方数字速查表与易错清单**）、**§11 并行策略深挖 7 题**（**TP / DP / PP / EP / CP 的通信量公式、流水气泡、ZeRO 三阶段、EP vs TP、ring attention、组合决策树**）、**§12 SOTA 算子全景 8 题**（**indexer/稀疏注意力、线性注意力 chunkwise、通算融合进 GEMM epilogue、量化后端矩阵、低延迟 skinny GEMM** —— 全部带 vLLM 源码路径，可以当场搜）。每题给**要点式答案 + 必须说出的数字**；**不含 LeetCode 算法题** | 冲刺 |
-| [`interview.pdf`](docs/interview.pdf) | **上面那份题库的打印版**（191 页 A4，mermaid 图已渲染成图片，带目录）。用 `python code/export_pdf.py` 从 Markdown 重新生成 —— **PDF 永远是源码的派生物，不会漂移** | 打印/离线看 |
+| [`interview.md`](docs/interview.md) | **★ 面试篇：270 题** —— 本材料**唯一**的题库。按 11 个分区：**§2 计算机基础 55 题**（cache / OS / 并发 / 浮点 / C++）、§3 CUDA 与算子 36、§4 推理框架 40、§5 分布式通信 29、§6 性能分析 15、**§7 CUDA 与算子手撕题 15 题（完整可编译代码 + 解析，约 3900 行 CUDA）**、§8 系统设计 10、§9 补充 25、**§10 SOTA 模型架构 30 题**（DeepSeek MLA/DSA/V4、Qwen GQA+QK-Norm+Omni、Kimi 长上下文、混合注意力之争，**外加官方数字速查表与易错清单**）、**§11 并行策略深挖 7 题**（**TP / DP / PP / EP / CP 的通信量公式、流水气泡、ZeRO 三阶段、EP vs TP、ring attention、组合决策树**）、**§12 SOTA 算子全景 8 题**（**indexer/稀疏注意力、线性注意力 chunkwise、通算融合进 GEMM epilogue、量化后端矩阵、低延迟 skinny GEMM** —— 全部带 vLLM 源码路径，可以当场搜）。每题给**要点式答案 + 必须说出的数字**；**不含 LeetCode 算法题**。**文档已精简为「菜单 + 问答」**：第 1 页是带**真实页码**的 11 章菜单，之后只有题目与答案（没有导读、没有章节导语、没有附录说明） | 冲刺 |
+| [`interview.pdf`](docs/interview.pdf) | **上面那份题库的打印版**（180 页 A4，mermaid 图已渲染成图片，带目录）。用 `python code/export_pdf.py` 从 Markdown 重新生成 —— **PDF 永远是源码的派生物，不会漂移** | 打印/离线看 |
 | [`code/interview/`](code/interview/) | **§7 那 15 道手撕题的完整源码**（每题一个可独立编译的 `.cu`）+ `build.sh` / `build.ps1` + `build_kernels.py`（把代码嵌进 §7，保证 Markdown/PDF 与源码不漂移） | 上机练手 |
 | [`labs.md`](docs/labs.md) | 14 个概念实验：无 GPU / 单卡 / 多卡三档 | 4h |
 | [`labs-gpu.md`](docs/labs-gpu.md) | **★ 租机多卡实验手册**：按预算分档（2–4 卡 / 8 卡 / 跨机）、一键脚本、成本估算、避坑清单、结果模板 | 租机前必读 |
@@ -437,15 +437,17 @@ python code/verify_citations.py     # 63/63 才说明行号对得上
 | 新增 | 内容 |
 |---|---|
 | **§10 的 J.5（Q251–Q255，新 5 题）** | 2025–2026 的**方向题**：**DeepSeek-V4 用滑窗+CSA+HCA 取代 MLA**（并给出「MLA 压每个 KV 多大 / V4 压要读多少个 KV」这条主线）、**V3.2 的 DSA 稀疏注意力**（top-k 2048、indexer、crossover 长度）、**Kimi K2 为何把 attention head 从 128 砍到 64**（官方口径：+83% 推理 FLOPs）、**MiniMax M2 为何退回全注意力**（官方承认 hybrid 在多跳推理上有缺陷）、**Qwen3 thinking/non-thinking 双模式对调度与显存的影响** |
-| **§10 的 J.8 官方数字速查** | 三张可引用表（**DeepSeek / Qwen / Kimi-MiniMax-GLM-Llama4-Step3**）+ 一张 **KV cache 每 token 对照表** + **三条能自己算的公式**（MLA 层 / GQA 层 / 线性层）+ 三条交叉验证。每个数字都标了官方出处，`(推)` 标出的是本材料按官方数字的算术推导 |
-| **§10 的交叉引用全部重新校对** | 原 J.6 表里的 `§4.1 Q71` / `§5.4 Q128–Q130` / `§9.4 Q197` 等编号是合并前的旧号，**已全部重算为目标题号**；正文里 8 处过期引用也一并修正 |
-| **§10 的 J.9 易错点与「不要编造」清单** | **18 条高频错答**（K2 不是线性注意力、Qwen3 不是两个模型、GLM-4.5 是 160 专家、Llama 4 的 `no_rope_layers` 语义与字段名相反、234 ms 不是 Qwen2.5-Omni 的数字…）+ 一张**「公开资料里确实查不到」的表**（V3 的 MTP λ / 序列级 α、K2 论文正文没写 MLA 维度、GLM-4.6 无独立论文、Meta 从未发布 Llama 4 技术报告…） |
+| **§10 的 J.7 官方数字速查** | 三张可引用表（**DeepSeek / Qwen / Kimi-MiniMax-GLM-Llama4-Step3**）+ 一张 **KV cache 每 token 对照表** + **三条能自己算的公式**（MLA 层 / GQA 层 / 线性层）+ 三条交叉验证。每个数字都标了官方出处，`(推)` 标出的是本材料按官方数字的算术推导 |
+| **§10 的交叉引用全部重新校对** | 原 J.6 交叉引用表里的 `§4.1 Q71` / `§5.4 Q128–Q130` / `§9.4 Q197` 等编号是合并前的旧号，**已全部重算为目标题号**；正文里 8 处过期引用也一并修正。**该表本身在不必要的引言清理中已删除**（每题自带指向，正文交叉引用已就地修正） |
+| **§10 的 J.8 易错点与「不要编造」清单** | **18 条高频错答**（K2 不是线性注意力、Qwen3 不是两个模型、GLM-4.5 是 160 专家、Llama 4 的 `no_rope_layers` 语义与字段名相反、234 ms 不是 Qwen2.5-Omni 的数字…）+ 一张**「公开资料里确实查不到」的表**（V3 的 MTP λ / 序列级 α、K2 论文正文没写 MLA 维度、GLM-4.6 无独立论文、Meta 从未发布 Llama 4 技术报告…） |
 | **§11 并行策略深挖（新，Q256–Q262）** | 补上 §5.1 只有「一句话定义」的缺口：**每层每 rank 的通信量对照表**（TP ≈ 4S / PP ≈ 2S / EP ≈ S / DP = 2×参数量）、**流水气泡三个公式**（GPipe / 1F1B / 虚拟流水，P=8、M=32 时 22% → 5.5%）、**ZeRO 三阶段各通信什么**（ZeRO-1/2 通信量不变、ZeRO-3 涨 1.5×）、**推理 DP 与 DP attention**（EP 组是从 DP+TP 合并出来的）、**EP vs TP 的逐条对比**、**CP 的 ring attention 为什么能「免费」**、**五种并行的组合决策树 + 三种典型配置** |
 | **§12 SOTA 算子全景（新，Q263–Q270）** | **从 vLLM 源码里把这一代在用的 kernel 全部列出来**：五层来源（`csrc/` / Triton / **CuTeDSL** / 外部库 / **TileLang**）、**稀疏注意力 + indexer 三件套**（DeepSeek DSA vs MiniMax MSA 逐条对比）、**DeepSeek-V4 的 kernel 与 V3 的四条差异**（`HEAD_DIM=512 / ROPE=64 / NOPE=448`、UE8M0 FP8、MXFP4 indexer、DeepGEMM MegaMoE）、**KDA 的 chunkwise 四形态**、**RecoverSSM 与投机解码的状态回滚**、**通算融合的三种 kernel 形态**（GEMM-RS-AR / AllReduce+RMSNorm+RS / multicast GEMM）、**量化后端的四维爆炸**（`emulation` 路径的意义）、**低延迟 skinny GEMM 的按形状查表**（B300/B200/H200/Rubin 的表不能合并） |
-| **`_sota_ref/`（新）** | 这轮调研的**逐条事实底稿**（三份，共约 1000 行）：每个数字标 `[官方]/[实现]/[三方]/(推断)/未找到`，并附原始 URL。**J.8 与 J.9 全部由它派生**，可以逐条回查 |
+| **题库精简为「菜单 + 问答」（新）** | 按用户要求移除所有非题目内容：**文首导读 0/1/2**（JD 考点分布、面经统计、三条使用路径）、**每章开头的 `>` 导语块**、**§10 的 J.6 交叉引用表**、**文末「附：本库的边界与维护说明」**，以及 §7 生成块里的导语与「7 处差异」讨论段。**只保留**：带真实页码的章级菜单、图例（3 行）、题目与答案（`答·/数字·/坑·`）、以及 §7.0 溯源表与 §10 J.7/J.8、§12 L.1–L.5 三张速查表。**8420 → 8145 行；PDF 191 → 180 页** |
+| **PDF 目录带真实页码（新）** | `export_pdf.py` 改成**两遍渲染**：先出一版 PDF，用 `pymupdf` 按 CSS 声明的字号（h2 = 14.175pt）把每个标题的**实际页码**读回来，再重渲染注入目录，并迭代到页码收敛（`TOC page numbers settled`）。**Markdown 里的菜单用 `<!-- TOC:BEGIN/END -->` 包裹，导出时替换为带页码的版本**，两边不会重复 |
+| **`_sota_ref/`（新）** | 这轮调研的**逐条事实底稿**（三份，共约 1000 行）：每个数字标 `[官方]/[实现]/[三方]/(推断)/未找到`，并附原始 URL。**J.7 与 J.8 全部由它派生**，可以逐条回查 |
 
 > **为什么要单独列「查不到的东西」**：面试里**说错一个数**不如**说「这个我没有可靠来源，但我知道它的量级」**。
-> J.9.2 那张表就是让你**知道边界在哪** —— 边界内敢下断言，边界外主动承认。
+> J.8.2 那张表就是让你**知道边界在哪** —— 边界内敢下断言，边界外主动承认。
 
 **注**：原来的 `appendix-interview-bagu.md` / `appendix-bytedance-real.md` /
 `appendix-cuda-kernel.md` 三个文件**已按用户要求合并进 `interview.md` 并删除**，

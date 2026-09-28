@@ -244,9 +244,17 @@ nav.toc h2 {
   padding: 0; color: var(--muted); letter-spacing: .05em;
 }
 nav.toc ol { list-style: none; margin: 0; padding: 0; }
-nav.toc li { margin: .12em 0; font-size: .9em; }
-nav.toc li.lvl3 { padding-left: 1.4em; color: #444; font-size: .85em; }
-nav.toc .pg { color: var(--muted); }
+nav.toc li {
+  display: flex; align-items: baseline; gap: .4em;
+  margin: .1em 0; font-size: .88em; line-height: 1.45;
+}
+nav.toc li .t { flex: 1 1 auto; }
+nav.toc li .pg {
+  flex: 0 0 auto; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+nav.toc li.lvl2 { font-weight: 600; }
+nav.toc li.lvl3 { padding-left: 1.5em; color: #444; font-size: .82em; }
 """
 
 # --------------------------------------------------------------------------
@@ -363,25 +371,113 @@ def check_diagram_fit(png: Path, idx: int, source: str) -> str | None:
             f"so it will be hard to read in print{hint}")
 
 
-def build_toc(html_body: str, html_mod) -> str:
-    """Build a two-level TOC from the h2/h3 ids that python-markdown generated."""
-    items = re.findall(
+MD_TOC_RX = re.compile(r"<!-- TOC:BEGIN -->.*?<!-- TOC:END -->\s*", re.S)
+
+# h2 = 1.35rem, h3 = 1.12rem at a 10.5pt root; Chrome renders these verbatim.
+H2_PT, H3_PT, TITLE_PT = 1.35 * 10.5, 1.12 * 10.5, 1.9 * 10.5
+SIZE_TOL = 0.35
+
+
+def heading_list(html_body: str) -> list[tuple[int, str, str]]:
+    """[(level, anchor, plain_title)] for every h2/h3, in document order."""
+    import html as _html
+
+    out = []
+    for lvl, anchor, raw in re.findall(
         r'<h([23])[^>]*id="([^"]+)"[^>]*>(.*?)</h\1>', html_body, re.S
-    )
-    if not items:
+    ):
+        # unescape so the title matches the glyphs the PDF actually contains
+        title = _html.unescape(re.sub(r"<[^>]+>", "", raw))
+        title = re.sub(r"\s+", " ", title).strip()
+        out.append((int(lvl), anchor, title))
+    return out
+
+
+def build_toc(headings: list[tuple[int, str, str]], pages: dict[str, int] | None) -> str:
+    """Render the menu: chapters only, each with its page number.
+
+    Sub-sections stay out on purpose — the point is a one-glance map of the
+    bank, and the PDF's own outline still carries the full heading tree.
+    """
+    chapters = [h for h in headings if h[0] == 2]
+    if not chapters:
         return ""
     rows = []
-    for lvl, anchor, raw in items:
-        title = re.sub(r"<[^>]+>", "", raw)
-        title = re.sub(r"\s+", " ", title).strip()
-        # the heading text already carries its own numbering; keep it short
-        if len(title) > 78:
-            title = title[:75] + "…"
-        cls = "lvl3" if lvl == "3" else "lvl2"
-        rows.append(f'<li class="{cls}"><a href="#{anchor}">{title}</a></li>')
-    return (
-        '<nav class="toc"><h2>目录</h2><ol>' + "".join(rows) + "</ol></nav>"
-    )
+    for lvl, anchor, title in chapters:
+        short = title if len(title) <= 66 else title[:64] + "…"
+        pg = pages.get(anchor) if pages else None
+        num = f'<span class="pg">{pg}</span>' if pg else ""
+        rows.append(f'<li class="lvl2"><a class="t" href="#{anchor}">{short}</a>{num}</li>')
+    return '<nav class="toc"><h2>目录</h2><ol>' + "".join(rows) + "</ol></nav>"
+
+
+def pdf_heading_pages(pdf_path: Path, headings: list[tuple[int, str, str]]) -> dict[str, int]:
+    """Read the printed PDF back and map each heading anchor to its page number.
+
+    Both lists are in document order, so this is a two-pointer walk: consume PDF
+    lines whose text is a *prefix* of the heading we are looking for, which also
+    stitches back together headings that wrapped onto a second line. Keying off
+    the declared font sizes keeps the TOC's own small print and the title block
+    out of the candidate set.
+    """
+    try:
+        import pymupdf
+    except ImportError:
+        print("  ! pymupdf missing — TOC will have no page numbers")
+        return {}
+
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", "", s)
+
+    doc = pymupdf.open(pdf_path)
+    hits: list[tuple[int, int, str]] = []
+    for pno in range(doc.page_count):
+        for blk in doc[pno].get_text("dict").get("blocks", []):
+            for line in blk.get("lines", []):
+                spans = line.get("spans", [])
+                if not spans:
+                    continue
+                size = max(s["size"] for s in spans)
+                lvl = 2 if abs(size - H2_PT) <= SIZE_TOL else (
+                    3 if abs(size - H3_PT) <= SIZE_TOL else None)
+                if lvl is None:
+                    continue
+                txt = "".join(s["text"] for s in spans).strip()
+                if txt:
+                    hits.append((pno + 1, lvl, txt))
+
+    pages: dict[str, int] = {}
+    hi = 0
+    for lvl, anchor, title in headings:
+        target = norm(title)
+        acc, page = "", None
+        while hi < len(hits):
+            hp, hl, ht = hits[hi]
+            if hl != lvl:
+                hi += 1
+                continue
+            combined = acc + norm(ht)
+            if not target.startswith(combined):
+                break
+            if page is None:
+                page = hp
+            elif hp != page:
+                break
+            acc, hi = combined, hi + 1
+            if acc == target:
+                break
+        if acc and page is not None and (acc == target or target.startswith(acc)):
+            pages[anchor] = page
+        elif acc == "":
+            hi += 1  # orphan PDF line: skip it so later headings are not stuck
+
+    if len(pages) != len(headings):
+        missing = [t for _, a, t in headings if a not in pages][:3]
+        print(f"  ! heading/page match incomplete ({len(pages)}/{len(headings)})"
+              f" — page numbers omitted; first misses: {missing}")
+        return {}
+    return pages
+
 
 
 HTML_SHELL = """<!DOCTYPE html>
@@ -396,7 +492,9 @@ HTML_SHELL = """<!DOCTYPE html>
 """
 
 
-def md_to_html(md_path: Path, workdir: Path) -> tuple[str, dict]:
+def md_to_html(
+    md_path: Path, workdir: Path, pages: dict[str, int] | None = None
+) -> tuple[str, dict, list[tuple[int, str, str]]]:
     try:
         import markdown
     except ImportError:
@@ -405,6 +503,9 @@ def md_to_html(md_path: Path, workdir: Path) -> tuple[str, dict]:
 
     raw = md_path.read_text(encoding="utf-8")
     check_fences(raw)
+    # The Markdown carries its own menu for readers on GitHub; the PDF gets the
+    # generated one instead (same content, plus real page numbers).
+    raw = MD_TOC_RX.sub("", raw)
 
     stats = {"mermaid_total": len(MERMAID_RX.findall(raw)), "mermaid_ok": 0}
     raw, stats["mermaid_ok"] = render_mermaid_blocks(raw, workdir)
@@ -412,7 +513,8 @@ def md_to_html(md_path: Path, workdir: Path) -> tuple[str, dict]:
     html_mod = markdown.Markdown(extensions=MD_EXTENSIONS, extension_configs=MD_EXT_CONFIGS)
     body = html_mod.convert(raw)
 
-    toc = build_toc(body, html_mod)
+    headings = heading_list(body)
+    toc = build_toc(headings, pages)
     first_h1 = re.search(r"<h1[^>]*>(.*?)</h1>", body, re.S)
     title = re.sub(r"<[^>]+>", "", first_h1.group(1)).strip() if first_h1 else md_path.stem
     # the h1 becomes the title block, so drop it from the body
@@ -426,7 +528,7 @@ def md_to_html(md_path: Path, workdir: Path) -> tuple[str, dict]:
         f'导出工具 export_pdf.py</div></div>'
     )
     return HTML_SHELL.format(title=title, css=CSS, title_block=title_block,
-                             toc=toc, body=body), stats
+                             toc=toc, body=body), stats, headings
 
 
 def html_to_pdf(html_path: Path, pdf_path: Path, chrome: Path) -> None:
@@ -465,14 +567,34 @@ def export(md_path: Path, keep: bool) -> Path | None:
     pdf_path = md_path.with_suffix(".pdf")
     workdir = Path(tempfile.mkdtemp(prefix="md2pdf_"))
     try:
-        html, stats = md_to_html(md_path, workdir)
+        # ---- pass 1: render without page numbers to learn the pagination ----
+        html, stats, headings = md_to_html(md_path, workdir)
         html_path = workdir / (md_path.stem + ".html")
         html_path.write_text(html, encoding="utf-8")
+        html_to_pdf(html_path, pdf_path, chrome)
+
+        # ---- pass 2..n: inject page numbers, re-render until pagination settles ----
+        pages = pdf_heading_pages(pdf_path, headings)
+        for _ in range(3):
+            if not pages:
+                break
+            if not any(pages.values()):
+                break
+            html, stats, _ = md_to_html(md_path, workdir, pages)
+            html_path.write_text(html, encoding="utf-8")
+            html_to_pdf(html_path, pdf_path, chrome)
+            again = pdf_heading_pages(pdf_path, headings)
+            if again == pages:
+                print(f"  TOC page numbers settled ({len(pages)} entries)")
+                break
+            pages = again
+        else:
+            print("  ! TOC page numbers did not settle after 3 passes")
+
         if keep:
             kept = md_path.with_suffix(".html")
             kept.write_text(html, encoding="utf-8")
             print(f"  kept intermediate HTML -> {kept.name}")
-        html_to_pdf(html_path, pdf_path, chrome)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 

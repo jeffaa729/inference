@@ -218,29 +218,7 @@ def build_section() -> str:
 
     parts: list[str] = [BEGIN, ""]
     parts += [
-        "> **本节的代码全部是完整、可编译、可运行的 `.cu` 文件**，",
-        f"> 源码在 [`{rel_from_docs(KERNEL_DIR)}/`]({rel_from_docs(KERNEL_DIR)}/)，",
-        "> 一键编译运行：`cd code/interview && ./build.sh --run all`"
-        "（Windows 用 `build.ps1`）。",
-        ">",
-        f"> **本节由 `{rel_from_docs(HERE / 'build_kernels.py')}` 从这 {len(files)} 个 `.cu` 文件自动生成** ——",
-        "> 所以 PDF / Markdown 里看到的代码就是编译器看到的代码，不会漂移。",
-        ">",
-        "> 每个文件的结构统一为：**题面 → 解析要点 → 完整代码 → 测试用例**。",
-        "> 代码注释保留「为什么这么写」的推理，**面试时能讲出注释里的取舍，比写出代码本身更重要**。",
-        "",
         "### §7.0 LeetCUDA 溯源（每题对应参考仓库的哪份实现）",
-        "",
-        f"> **参考仓库**：[xlite-dev/LeetCUDA]({LEETCUDA_REPO})"
-        f"（本地 checkout `C:\\Users\\Jeff\\Documents\\GitHub\\LeetCUDA`，"
-        f"引用锚点 **HEAD `{LEETCUDA_HEAD}`** —— 行号会漂，**符号名稳定**）",
-        ">",
-        "> **本节的宏命名与工具函数刻意与参考仓库的 `kernels/interview/common.cuh` 对齐**：",
-        "> `FLOAT4` / `HALF2` / `INT4`、`CP_ASYNC_CG` / `CP_ASYNC_COMMIT_GROUP` /",
-        "> `CP_ASYNC_WAIT_GROUP`、`LDMATRIX_X4/X2/X2_T`、`HMMA16816` / `HMMA16816F32`、",
-        "> `permuted<kColStride,kStep>` / `SwizzleBMS<B,M,S>`、`warpgroup_reg_alloc/dealloc`、",
-        "> `make_smem_desc` / `tma_load_2d` / `tma_arrive_expect_tx`。",
-        "> **所以在两边看到的写法是同一套** —— 你在 LeetCUDA 里学到的读法可以直接迁移。",
         "",
         "| 题 | 本节的实现 | LeetCUDA 参考实现（文件 · 符号） |",
         "|---|---|---|",
@@ -254,34 +232,7 @@ def build_section() -> str:
             f"| **Q{q}** | [`{cu.name}`]({rel_from_docs(cu)}) | "
             + "<br>".join(cells) + " |"
         )
-    parts += [
-        "",
-        "> **⚠️ 与参考仓库的 7 处有意差异**（完整说明在 "
-        f"[`{rel_from_docs(KERNEL_DIR / 'lc_common.cuh')}`]"
-        f"({rel_from_docs(KERNEL_DIR / 'lc_common.cuh')}) 头部）：",
-        ">",
-        "> 1. **容差**：LeetCUDA 的 `.py` 里**没有 tol / 没有 `allclose` / 没有断言**"
-        "（纯 benchmark，靠人眼看打印值）；它的 `notes-v2.cu` 对 attention 也只有"
-        "一个 `max_err >= 5e-1f` 的失败判据。**「LeetCUDA 有三档容差」是个常见误解** ——"
-        "那是它 README 里的**实测 Max Err 报告值**（F16Acc ~1.83e-4、F32Acc ~1.53e-5、"
-        "FA3 双 WG ~9.16e-5）。本套件**自定义**三档判据（1e-3 / 5e-2 / 1e-2）+ CPU 对拍，"
-        "判据硬得多；同时在 `lc_common.cuh` 里保留了 `TOL_LEETCUDA_FAIL` 与三个 "
-        "`OBS_*` 常量，方便对照。",
-        "> 2. LeetCUDA 的 build 开了 `--use_fast_math`；**本套件没开**，所以容差是保守的。",
-        "> 3. **越界读的守卫**：LeetCUDA 的 `LDST128BITS`/`FLOAT4` 载入一律无守卫"
-        "（`*_x16_pack` 连累加循环都没守卫）；本套件**统一二段式守卫**，能安全跑非对齐 N。",
-        "> 4. **partial warp 哨兵**：LeetCUDA 的 softmax `case 32` 用 8 线程 block 跑"
-        "全掩码 `__shfl_xor_sync(0xffffffff,…)`（UB）；本套件要么保证 block 是 32 的整数倍，"
-        "要么让边界线程携带单位元。",
-        "> 5. **参考实现的口径**：LeetCUDA 的 `naive_layer_norm` 用无偏 `std`（除 K-1）"
-        "而 kernel 用有偏 `variance/K`；`naive_rms_norm` 没有 eps 而 kernel 有 `1e-5`。"
-        "**本套件的 CPU 参考与 kernel 口径一致**。",
-        "> 6. **不依赖 cuBLAS/cuDNN**：LeetCUDA 的 bench 会跟它们比；手撕题不需要基线库。",
-        "> 7. **不复制 LeetCUDA 的拼写与已知注释-代码不一致**"
-        "（`LANUCH_*` / `STRINGFY` / `DISPATCH_SATE_*`；bf16 reduce 注释说跨 warp 用 fp32 "
-        "但代码是 bf16）。引用时会如实指出。",
-        "",
-    ]
+    parts.append("")
 
     for q, name, cu in files:
         src = cu.read_text(encoding="utf-8").rstrip("\n")
@@ -299,9 +250,6 @@ def build_section() -> str:
             f"> **考点**：{gist}",
             f"> **源码**：[`{rel_from_docs(cu)}`]({rel_from_docs(cu)})"
             f"（{n_lines} 行，sha256 `{sha(cu)}`）",
-            ref_line.rstrip("\n") if ref_line else "> ",
-            "> **怎么用**：先自己写一遍 → 再对着下面的代码找差异 → 最后看「解析要点」里"
-            "那些你不认同的取舍。",
             "",
             "```cuda",
             src,
@@ -327,19 +275,7 @@ def patch(text: str, section: str) -> str:
         raise SystemExit("interview.md has no '## §7 ' header to anchor the section")
     nxt = re.search(r"^## §8 .*$", text[m.end():], re.M)
     end = m.end() + (nxt.start() if nxt else len(text) - m.end())
-    head = (
-        f"## §7 CUDA 与算子手撕题{rng}\n\n"
-        "> **手撕题 = 完整代码 + 解析**。下面每题都给**能直接编译运行的完整 `.cu`**"
-        "（不是片段），解析写在「解析要点」与代码注释里。\n"
-        ">\n"
-        "> 面试时的白板纪律（比代码本身更重要）：\n"
-        "> ① **先说出假设**（形状对齐？对齐到多少？N 是编译期常量吗？）；\n"
-        "> ② **先写朴素版**，再说优化版 —— 直接写 vec4 版本容易在边界上翻车；\n"
-        "> ③ **边界守卫一定要写**，并主动说清它防什么；\n"
-        "> ④ **写下 grid / block 的取值**（向上取整的写法）；\n"
-        "> ⑤ **最后补一句怎么测**（对拍对象 + 容差 + 极端形状）。\n"
-    )
-    return text[: m.start()] + head + "\n" + section + "\n\n---\n\n" + text[end:]
+    return text[: m.start()] + f"## §7 CUDA 与算子手撕题{rng}\n\n" + section + "\n\n---\n\n" + text[end:]
 
 
 def main() -> int:
