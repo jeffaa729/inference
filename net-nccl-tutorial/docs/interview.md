@@ -1,4 +1,4 @@
-# 面试篇：255 题
+# 面试篇：270 题
 
 > **这是本材料唯一的题库。**
 > 原来的附录 G（JD 反推 31 题）、附录 H（真实面经 20 题）、附录 I（CUDA 内核 60 题）
@@ -121,7 +121,7 @@
 
 **先做一次自测**：随机抽 20 题，**能说出关键数字的算过**。低于 12 题过 → 从 §2 顺序读。
 
-**本库的 9 个分区**（共 **255 题**）：
+**本库的 11 个分区**（共 **270 题**）：
 
 | 分区 | 内容 | 题数 | 题号 |
 |---|---|---|---|
@@ -134,6 +134,8 @@
 | **§8** | 系统设计（开放题，看结构） | 10 | Q191–Q200 |
 | **§9** | 补充（工具链 / 精度 / 分布式杂项 / 前沿名词） | 25 | Q201–Q225 |
 | **§10** | **SOTA 模型架构与推理**（DeepSeek MLA/DSA/V4 / Qwen GQA+QK-Norm+Omni / Kimi 长上下文 / 混合注意力之争） | **30** | Q226–Q255 |
+| **§11** | **并行策略深挖**（TP / DP / PP / EP / CP 的通信量、气泡、ZeRO、选型决策树） | **7** | Q256–Q262 |
+| **§12** | **SOTA 算子全景**（这一代开源模型用了哪些 kernel：indexer/稀疏、线性注意力、通算融合、量化后端、低延迟 GEMM） | **8** | Q263–Q270 |
 
 > **注**：本库**不含 LeetCode 算法题** —— 那类题请直接刷题站。
 > 这里只收「AI Infra 岗位面试真正会问的**专业题**」，
@@ -1767,6 +1769,8 @@ merge kernel 实测 **0.7849 ms / 1031.4 GB/s**（≈ 峰值 77%，搬 809.5 MB�
 
 ### 5.1 并行策略
 
+> **这里是「一句话版」**；**通信量公式、流水气泡、ZeRO、EP vs TP、CP 的 ring attention、以及五者的组合决策树**都在 **§11（Q256–Q262）** —— 面分布式/训练/集群岗请直接跳那里。
+
 **Q132 `[基础]` ★ TP、PP、DP、EP 分别解决什么问题？**
 
 | 策略 | 切什么 | 解决什么 | 代价 |
@@ -1901,8 +1905,20 @@ all-to-all 的发送量由运行时数据决定（MoE 路由结果），
 `答·` 让**所有 rank 的同一块 buffer 在彼此的地址空间里可寻址**的机制
 （类似分布式共享内存）。它让「单边通信」（一个 rank 直接读写另一个 rank 的 buffer）
 成为可能，是**通算融合与 MoE megakernel 的基础**。
-`数字·` NCCL 的 window API 在 **≥ 2.27.3**；**GIN（GPU-Initiated Networking）
-在 ≥ 2.30.4**（版本对照见 ch03）。
+`数字·` **五个里程碑要分清**（这是最容易被讲糊的一题）：
+
+| NCCL 版本 | 引入的能力 |
+|---|---|
+| **2.27.3** | **对称内存 window API**（`ncclCommWindowRegister`），vLLM 硬断言 `>= 22703` |
+| **2.28.3** | **Device API**（`ncclGetLsaPointer` 等，LSA + Multimem） |
+| **2.28.7** | **GIN（GPU-Initiated Networking）** |
+| **2.29.2** | host 侧单边 RMA（`ncclPutSignal` / `ncclSignal` / `ncclWaitSignal`） |
+| **2.31** | CFT |
+
+⚠️ **两个常见错误**：
+① 说「GIN 是 2.30.4 引入的」—— **2.30.4 是 DeepEP v2 的要求**，GIN 特性本身在 **2.28.7**；
+② 说「vLLM 用 GIN」—— **vLLM 自己只做 host 侧对称内存**（`win_flags` 硬编码、整个 checkout 里没有 device 侧 NCCL 调用）；**GIN 进入 vLLM 的唯一入口是 `deepep_v2` 后端**（要求 DeepEP ≥ 2.0 + **NCCL ≥ 2.30.4** + IBGDA 网卡）。
+③ 还有一条**官方文档 ↔ 源码的交叉验证**很值得说：NCCL 2.27.3 release notes 原文写 *"Initial support includes P2P and NVLS connectivity, floating point types up to 32 bits, sum as the reduction operator, and one collective operation per group."* —— 这正好解释了为什么 vLLM 的 `SymmMemCommunicator` **把 dtype 写死成 bfloat16、op 写死成 sum**。
 
 ### 5.3 通算融合与重叠
 
@@ -6522,7 +6538,8 @@ all-reduce 依赖它）会失败**；③ **共享内存太小** ⇒ `--shm-size`
 `答·` 一张表：**驱动 → 支持的 CUDA runtime 上限**；
 **CUDA toolkit → 支持的 PyTorch/vLLM 版本**；
 **PyTorch → 编译时的 CUDA 版本**（`torch.version.cuda`）；
-**NCCL 版本 → 有哪些特性**（symmetric memory ≥ **2.27.3**，GIN ≥ **2.30.4**）。
+**NCCL 版本 → 有哪些特性**（**2.27.3** 对称内存 window API → **2.28.3** Device API → **2.28.7** GIN → **2.29.2** host 侧单边 RMA → **2.31** CFT；当前 2.32.3）。
+⚠️ 常见错误：说「NCCL 2.28 同时引入了 Device API 和 GIN」—— **这两个版本号不同（2.28.3 / 2.28.7）**。
 `数字·` **最保险的做法是跑一遍自检**：本材料提供了
 `provision_rented_gpu.py`（硬件/版本自检 + 特性可用性对照 + 建议实验套餐）。
 
@@ -6932,7 +6949,7 @@ MLA 是"**改变缓存的对象**"（存隐向量而不是存 K/V）。
 | **GQA** | `h` | `g`（`1 < g < h`） | **按 `g/h` 缩减** | 接近 MHA |
 | MQA | `h` | `1` | 最小 | 有损 |
 
-**为什么选 GQA**：decode 是 **memory-bound**（§3.3 Q50），
+**为什么选 GQA**：decode 是 **memory-bound**（§3.3 Q73），
 **KV cache 的读取量直接决定每 token 的时间**；
 而 GQA 在**几乎不损失质量**的前提下把 KV cache 按比例缩小 ⇒
 **同样显存能开更大 batch** ⇒ 吞吐与并发同时受益。
@@ -6964,12 +6981,12 @@ QK-Norm **只作用在 attention 内部的 Q/K 上**，
 `答·` 三个约束共同把答案挤到 128 附近：
 
 1. **Tensor Core 的形状**：`head_dim` 要能被子 tile 整除
-   （§3.4 的 `m16n8k16` 要求 K 维是 16 的倍数），128 是最省心的对齐；
+   （§3.4 Q77 的 `m16n8k16` 要求 K 维是 16 的倍数），128 是最省心的对齐；
 2. **算术强度**：head_dim 越大，**每个 KV head 被复用的次数越多**
    （attention 的 AI ≈ `Br`，与 D 相关）⇒ 大 head_dim 对带宽友好；
 3. **寄存器与 smem 预算**：attention 的 `O` 累加器每线程占 `kBr·D/256` 个寄存器
-   （§3.1 Q37 那条公式），**D 越大越容易撞 255 墙** ⇒
-   `D=128` 时堆叠 8 个 warp 还在预算内，**`D=512` 就必须换 M4N2 atom**（§9.4 Q197）。
+   （§3.1 Q60 那条公式），**D 越大越容易撞 255 墙** ⇒
+   `D=128` 时堆叠 8 个 warp 还在预算内，**`D=512` 就必须换 M4N2 atom**（同一个公式在 §3.1 Q60）。
 
 `数字·` **所以 128 不是"随便定的"，而是"三面夹击下的可行区"**；
 模型里出现的 192 / 256 之类的非 2 次幂 head_dim，
@@ -6992,7 +7009,7 @@ QK-Norm **只作用在 attention 内部的 Q/K 上**，
 `数字·` **面试里要主动说的三件事**：
 ① **"支持 1M 上下文"和"在 1M 上表现好"是两码事** ——
 要看**长文基准（如 needle-in-a-haystack / RULER 类）的实测**；
-② **KV cache 随长度线性涨**（§4.1 Q71），**1M 上下文的 KV cache 是主要显存开销**；
+② **KV cache 随长度线性涨**（§4.1 Q94），**1M 上下文的 KV cache 是主要显存开销**；
 ③ 所以**长上下文的能力与成本必须一起答**。
 `坑·` **只答"用了 YaRN"是不够的** —— YaRN 属于第 1 层，
 真正让模型"会用"长上下文的是第 2 层。
@@ -7130,7 +7147,7 @@ RTF 是"生成 1 秒音频要几秒算力"，**它不保证交互体验**；
    线性层维护的是**递推状态**（固定大小、按层分布），
    全注意力层维护的是 **KV cache**（按 token 增长）⇒
    **显存管理、前缀缓存（prefix caching）、PD 分离的 KV 传输都要分两套逻辑**；
-2. **前缀缓存失效**：prefix caching 依赖"**同一段前缀的 KV 完全一致**"（§4.1 Q74），
+2. **前缀缓存失效**：prefix caching 依赖"**同一段前缀的 KV 完全一致**"（§4.1 Q97），
    而线性层的状态是**从序列开头递推出来的** ⇒
    **不能像 KV cache 那样任意切块复用**（除非该实现专门支持状态检查点）；
 3. **算子生态**：主流 attention 后端（FlashAttention / FlashInfer）**不认识线性层**，
@@ -7141,7 +7158,7 @@ RTF 是"生成 1 秒音频要几秒算力"，**它不保证交互体验**；
 
 **Q246 `[进阶]` 1M 上下文的 KV cache 到底有多大？先算什么？**
 
-`答·` 用 §4.1 Q71 的公式，**但要按 1M 的长度重算**：
+`答·` 用 §4.1 Q94 的公式，**但要按 1M 的长度重算**：
 
 ```
 KV cache = 2 × layers × kv_heads_per_rank × head_dim × seq_len × batch × bytes
@@ -7224,7 +7241,7 @@ KV cache = 2 × layers × kv_heads_per_rank × head_dim × seq_len × batch × b
 1. **读一手**：官方技术报告 / 模型卡 / 开源仓库的 release notes
    （**不读二手解读**，二手会丢关键约束）；
 2. **跑一手**：把新模型在 vLLM 上跑起来，**看启动日志的 KV cache 与并发上限** ——
-   这比看论文更快建立直觉（§4.1 Q72 那两行日志）；
+   这比看论文更快建立直觉（§4.1 Q96 讲的那两行日志）；
 3. **fit 一手**：把它塞进你熟悉的框架里（显存够不够、EP 怎么切、通信多少）；
 4. **写下来**：一句话结论 + 数字 + 口径。
 
@@ -7286,7 +7303,13 @@ DSA 改成两步：
 所以它压的是**「要读多少个 KV」**，和 MLA 压**「每个 KV 有多大」**是**正交**的两件事 ——
 **V3.2 是"MLA + DSA"叠加，不是替代。**
 
-`数字·` top-k = **2048**；indexer 是 **64 头 × 128 维**，用 **ReLU + FP8 + Hadamard 旋转**，
+`数字·` top-k = **2048**（token 级），复杂度从 `O(L²)` 降到 **`O(L·k)`**；
+官方实现的 indexer 是 **64 头 × 128 维**，打分用 **ReLU + FP8**；
+⚠️ **注意口径**：所谓「Hadamard 旋转」**并没有出现在官方的 README 或任何一份技术报告里** ——
+它只以 **`rotate_activation()`** 的形式存在于官方参考实现 `inference/model.py` 中，
+作用在 **FP8 量化之前**（社区普遍认为它是 Hadamard 变换，但**官方没有给名字，也没给理由**）。
+**面试时请说「官方代码里有一个 `rotate_activation`」，别说「官方说用了 Hadamard」。**
+另：官方 H800 SXM5 上 DSA 给的是 **640 / 410 TFLOPS** 两个数（dense / sparse），
 indexer 自己的 K cache 也是 **blockwise FP8**。训练分两步：
 dense warm-up **2.1B tokens**（LR 1e-3，1000 step × 16 seq × 128K）
 → sparse 训练 **943.7B tokens**（LR 7.3e-6）。
@@ -7398,17 +7421,18 @@ vLLM 侧同名开关是 `--default-chat-template-kwargs '{"chat_template_kwargs"
 
 | 想深入 | 去哪 |
 |---|---|
-| MHA / GQA / MQA / MLA 的对比与 KV cache 公式 | §4.1 Q71、§9.4 Q197、本附录 J.1/J.2 |
-| 量化的格式、粒度、精度回归 | §4.3 Q80–Q87、§2.7 Q48–Q53 |
-| MoE 的 all-to-all、EP、EPLB、wire format | §5.4 Q128–Q130、§5.3 Q123–Q127 |
-| MoE 的通信融合（MegaMoE、对称内存） | **附录 F**（`docs/appendix-megamoe.md`） |
-| 长上下文的调度与 PD 分离 | §4.2 Q76–Q79、§5.5 Q131–Q132 |
-| attention kernel 与 head_dim 的墙 | §3.1 Q37、§3.4 Q52–Q61、§9.4 Q197 |
+| MHA / GQA / MQA / MLA 的对比与 KV cache 公式 | **§4.1 Q94**（KV cache 估算）、**§10 Q235**（MHA/GQA/MQA）、**Q226 + Q232**（MLA）、§9.4 Q215–Q217 |
+| 量化的格式、粒度、精度回归 | **§4.3 Q103–Q110**、**§9.2 Q208–Q210**、§2.7 Q48–Q53 |
+| MoE 的 all-to-all、EP、EPLB、wire format | **§4.7 Q120–Q124**、**§5.4 Q151–Q153** |
+| MoE 的通信融合（MegaMoE、对称内存） | **附录 F**（`docs/appendix-megamoe.md`）、**§4.7 Q123–Q124**、§5.3 Q146–Q150 |
+| 长上下文的调度与 PD 分离 | **§4.2 Q98–Q102**、**§5.5 Q154–Q156** |
+| attention kernel 与 head_dim 的墙 | **§3.1 Q60**（寄存器墙与 M4N2 atom）、**§3.4 Q77**（m16n8k16）、**§4.9 Q127–Q131**（FA）、§10 Q237 |
 | 多模态模型的部署形态 | 本附录 J.2（Q239–Q242） |
-| 投机解码（MTP 的原型） | §4.2 Q78 |
+| 投机解码（MTP 的原型） | **§4.2 Q101**（投机解码）、§10 Q230（MTP） |
 | MLA 的压缩与吸收（V4 / DSA 的前提） | 本附录 Q226、Q227、J.5 的 Q251–Q252 |
 | 混合线性注意力 vs 全注意力（该站哪边） | 本附录 Q244–Q245、J.5 的 Q254 |
-| 输出长度对调度/显存的影响 | §4.2 Q74–Q79、J.5 的 Q255 |
+| 输出长度对调度/显存的影响 | **§4.2 Q98–Q102**、**§4.4 Q111–Q113**、J.5 的 Q255 |
+| **并行策略的深挖（TP / DP / PP / EP / CP）** | **§11（Q256–Q262）**、§5.1 Q132–Q135、ch04 §4.5–§4.6 |
 
 ---
 
@@ -7454,7 +7478,7 @@ vLLM 侧同名开关是 `--default-chat-template-kwargs '{"chat_template_kwargs"
 | FP8 | 激活 **1×128** tile-wise、权重 **128×128** block-wise，scale 存 fp32；scale **必为 2 的幂**（ue8m0：`s = amax/448` → `exp2(ceil(log2 s))`）；Hopper Tensor Core 累加只保 **13 位尾数** |
 | 部署（官方） | 每层 all-to-all = `(1+2)B × 32 × 9 × 7K / 50 GB/s` = **120.96 µs**；×2×61 = **14.76 ms** ⇒ 理论上限 **≈ 67 tok/s** |
 | 官方推理实测 | B200 **TP4 + MTP-3** 单并发 **TPOT 3.2344 ms / TTFT 425.99 ms**；B200 **TP8 + EP8** 批 256 输出 **8618 tok/s**（per-GPU **1077.28**） |
-| V3.2 的 DSA | top-k **2048**；indexer **64 头 × 128 维**（ReLU + FP8 + Hadamard 旋转，blockwise FP8 的 indexer K cache）；warm-up **2.1B** tokens / sparse **943.7B** tokens |
+| V3.2 的 DSA | top-k **2048**（token 级）；indexer **64 头 × 128 维**，**ReLU + FP8**；indexer 的 K cache 也是 blockwise FP8。**⚠️ `rotate_activation()`（常被称作 Hadamard 旋转）只存在于官方参考实现里，README 与技术报告均未点名**；warm-up **2.1B** tokens / sparse **943.7B** tokens；官方 H800 SXM5 数字 **640 / 410 TFLOPS**（dense / sparse） |
 | V4（2026-04） | **V4-Pro 1.6T / 49B**、**V4-Flash 284B / 13B**、上下文 **1M**；MLA → **滑窗 + CSA(m=4) + HCA(m'=128)**；残差改 **mHC**；打分改 `Sqrt(Softplus(·))`；去掉 `n_group/topk_group`；前几层 hash MoE。**(推) 稀疏度 1.6T/49B ≈ 33× vs V3 的 ≈ 18×** |
 
 #### J.8.2 Qwen（Qwen2.5 / Qwen3 / Qwen3-MoE / Omni）
@@ -7577,6 +7601,798 @@ arXiv 2507.20534（K2）/ 2510.26692（Kimi Linear）/ 2501.08313（MiniMax-01�
 
 ---
 
+## §11 并行策略深挖：TP / DP / PP / EP / CP（Q256–Q262，7 题）
+
+> **为什么单独成章**：§5.1 给了四个策略的**一句话定义**（Q132–Q135），
+> ch04 §4.5 / §4.6 讲了 PP 的 P2P 与 DP attention 的代码。
+> 但面试真正会追问的是**「通信量是多少」「气泡多大」「为什么这么组合」** ——
+> 这一节把它们**逐个数出来**：每种并行的通信量公式、延迟特征、适合的互联、组合顺序。
+>
+> **面分布式 / 训练 / 集群岗时，这一节比 §5.1 更重要**；
+> 面推理框架岗至少要会 **Q256（PP 的通信）、Q259（推理 DP 与 EP）、Q262（选型）**。
+
+---
+
+**Q256 `[进阶]` ★ PP 的通信是什么？为什么它适合跨机？**
+
+`答·` PP **不做集合通信，只做点对点**（`send` / `recv`）：rank *i* 把 activation 发给 rank *i+1*，
+**链式依赖，只有相邻两卡通信**。用 all-reduce 是巨大浪费。
+每层边界传一块 activation，大小 = `micro_batch × seq × hidden × 2 bytes`（bf16）。
+
+**PP 适合跨机的三个理由**：
+
+| # | 理由 | 为什么 |
+|---|---|---|
+| ① | **通信量小** | 见下面的对照表：约为 TP 的一半 |
+| ② | **不需要全局同步** | TP 每层都要让 N 张卡对齐；PP 只与邻居握手，**对延迟不敏感** |
+| ③ | **可以流水** | 通信能藏在**别的 micro-batch 的计算**后面（这就是 micro-batch 存在的意义，见 Q257） |
+
+`数字·` **每层每 rank 的通信量对照**（`S` = 一块 activation 的字节数 = `batch × seq × hidden × 2`）：
+
+| 并行 | 每层每 rank 的通信量 | 通信类型 | 同步范围 |
+|---|---|---|---|
+| **TP** | **≈ 4S**（每层 2 次 all-reduce，每次每 rank 收发 ≈ 2S） | all-reduce | **全组 N 卡同步** |
+| **PP** | **≈ 2S**（收一块 + 发一块，且只与邻居） | send/recv | **只与邻居** |
+| **EP** | ≈ `S · (N−1)/N` ≈ **S** | all-to-all | 全组，但**可异步** |
+| **DP（训练）** | 每步 **2 × S_param**（梯度 all-reduce，`S_param` = 全部参数） | all-reduce | 全组 |
+
+⇒ **关键不是"量减半"，而是"没有全局同步"** ——
+TP 每层的 all-reduce 是一道**必须全员到齐才能过的栅栏**，
+PP 的 send/recv 只是"我发给邻居"，**对网络延迟的容忍度高一个量级**。
+这就是「**TP ≤ 8（NVLink 域内）、跨机靠 PP / DP / EP**」的定量依据（对照 Q133）。
+
+`坑·` ① 把 PP 说成"集合通信"；② 只说"PP 通信少"却说不出**为什么少**（P2P + 链式依赖 + 可流水）；
+③ 不知道 vLLM 里真的有一段代码在 PP 的首/末 rank 之间**主动改用 all-gather**
+（`parallel_state.py:1054-1066` 的 `_should_use_all_gather`）——
+**这说明「集合操作 vs 点对点」不是绝对对立的，具体取决于规模和实现开销**（ch04 §4.5）。
+
+---
+
+**Q257 `[hard]` ★ 流水气泡怎么算？1F1B 和 micro-batch 怎么配合？**
+
+`答·` PP 的代价是**气泡（bubble）**：流水的填充（fill）与排空（drain）阶段有 stage 在空转。
+三种调度的气泡比例：
+
+```
+GPipe（全前向、再全反向）  :  bubble = (P − 1) / (M + P − 1)
+1F1B（一前一后交替）        :  bubble = (P − 1) / M
+交错 / 虚拟流水（v 块每卡） :  bubble = (P − 1) / (v · M)
+```
+
+（`P` = 流水级数，`M` = micro-batch 数，`v` = 每个 stage 持有的虚拟块数）
+
+`数字·` 举例 **P = 8**：
+- `M = 32` 的 **1F1B** ⇒ 气泡 **7/32 ≈ 22%**；
+- `M = 32` 再加 **v = 4 的虚拟流水** ⇒ **7/128 ≈ 5.5%**。
+
+⇒ **两条降气泡的路**：**加大 M**（代价：同时在飞的 activation 变多，**显存涨**）
+或 **虚拟流水**（代价：每个 stage 要持有 v 份权重参数，**还是显存换气泡**）。
+
+`数字·` **1F1B 真正的卖点不是气泡（同 M 下与 GPipe 差别不大），而是峰值显存**：
+GPipe 要同时压住 **M 份** micro-batch 的 activation，1F1B 只需压 **P 份** ——
+在 `M ≫ P` 时这是数量级的差别。**所以 1F1B 是"用一点气泡换大量显存"。**
+
+`坑·` ① 说"micro-batch 越多气泡越小"却不提**显存代价**（这是被追问的第一层）；
+② 不知道 1F1B 的核心动机是**显存**而不是气泡；
+③ 答不出「**PP 的并行度为什么通常远小于 TP**」——
+PP 每翻一倍，气泡比例和**权重副本数**都变贵，而单层计算量没变。
+
+---
+
+**Q258 `[进阶]` ★ 训练的 DP 通信是什么？ZeRO 三个阶段各通信什么？**
+
+`答·` 训练 DP 的每张卡持有**完整模型**、吃**不同数据**，所以每步结束必须把梯度求和 ⇒
+**gradient all-reduce**，这是 DP **唯一**的通信。
+`数字·` 通信量与**参数量成正比、与 batch 无关**：每步 all-reduce 的每 rank 收发 ≈ **2 × S_param**
+（`all-reduce = reduce-scatter + all-gather`，见 Q137）。
+所以 DP 的扩展性由**参数量 ÷ 跨机带宽**决定，**调大 batch 不会让 DP 通信变贵**。
+
+**ZeRO 三阶段切的东西不同，通信量也完全不同**：
+
+| 阶段 | 切什么 | 通信量 | 显存收益 |
+|---|---|---|---|
+| **ZeRO-1** | 优化器状态（fp32 的 m / v / master weight） | **2S**（与标准 DP 相同） | 优化器状态降 **N 倍**（三个里最大头） |
+| **ZeRO-2** | 梯度也切 | **2S**（变成 reduce-scatter + all-gather，**总量不变**） | 梯度也降 N 倍 |
+| **ZeRO-3** | 参数也切 | **≈ 3S**（前向 all-gather 参数 + 反向 all-gather 参数 + 反向 reduce-scatter 梯度） | 参数量降 N 倍，**但通信量涨约 1.5×** |
+
+⇒ **一句话结论：ZeRO-1/2 是"免费"的（通信量与标准 DP 完全相同），
+ZeRO-3 是"用 1.5× 通信换 N 倍显存"。**（对照 Q157：训练 vs 推理的通信模式差异）
+
+`坑·` ① 说"ZeRO 减少通信"—— **它减少的是显存**，ZeRO-3 反而**增加**通信；
+② 把 DP 的通信量说成"与 batch 成正比"（**只与参数量成正比**，batch 只影响计算量）；
+③ 忘了 **DP 与 TP 是两条独立的 all-reduce**，典型排布是
+**TP 在节点内 + DP 跨节点**：此时 DP 的梯度 all-reduce 走跨机 IB，
+**它的量（2 × 全参数量）远大于 TP 每层那 4S** ——
+所以训练里真正压跨机带宽的是 DP，不是 TP。**这一条能说出来就很加分。**
+
+---
+
+**Q259 `[进阶]` ★ 推理的 DP 和训练的 DP 有什么不同？为什么 vLLM 需要 DP attention？**
+
+`答·` **推理没有反向，所以没有梯度 all-reduce** ——
+推理 DP 的每个副本是**完全独立的服务实例**，只共享入口做负载均衡。
+它的价值是**吞吐与容错**（也便于滚动升级），**而不是"把模型切开"**。这是 Q132 那个坑的展开。
+
+**但 MoE 一来，推理 DP 就不再"完全独立"了**，于是有了 **DP attention**：
+
+| 需求 | 机制 |
+|---|---|
+| 各 DP rank 的 batch 大小不同（有的 rank 请求多、有的少），**如果各自派发就会把热门专家所在的 rank 压垮** | 先**用 all-gather 把各 rank 的 router logits 凑齐**，看到全局负载后再统一决定 token 发给谁 |
+
+vLLM 里的实现是 `AgRsAll2AllManager.dispatch_router_logits`（`all2all.py:70-99`）；
+而 EP 的 dispatch / combine 才是真正的 all-to-all（`all2all.py:101-151`）。
+**注意这是两件不同的事**：DP attention 解决"**batch 不齐**"，EP 解决"**专家不在本地**"。
+
+`数字·` vLLM 的组拓扑顺序是 **`ExternalDP × DP × PP × PCP × TP`**（`parallel_state.py` 的注释）；
+更关键的一条：**EP 组是"从 DP 组和 TP 组合并出来的"** ——
+源码原话 *all2all lives in ep group, which is merged from dp and tp group*
+（`device_communicators/base_device_communicator.py:47`）。
+⇒ **EP 不是第五个正交维度，它叠在 DP + TP 之上**（这也是「为什么 EP 的初始化顺序会有问题」的根源）。
+
+`坑·` ① 说"推理 DP 也要 all-reduce 梯度"（见 Q132 的坑）；
+② 把 EP 当成与 TP/DP 并列的独立维度（**它是合并出来的**）；
+③ 部署 MoE 时只会拉 `--tensor-parallel-size`，不会用 **DP + EP** 组合来提高吞吐。
+
+---
+
+**Q260 `[hard]` ★ EP 能替代 TP 吗？什么时候该用 EP？**
+
+`答·` **不能完全替代**，因为两者切的**不是同一部分**：
+
+| | **TP** | **EP** |
+|---|---|---|
+| 切什么 | **所有层的权重矩阵**（attention + dense + MoE FFN） | **只有 MoE 的专家 FFN** |
+| attention / dense 层 | 被切开，**每层 2 次 all-reduce** | **完全复制**（每 rank 一份完整 attention） |
+| MoE FFN | 切开 | **按专家切**，token 走 all-to-all |
+| 通信形态 | **all-reduce，量在编译期已知** | **all-to-all，量由路由结果决定（数据依赖）** |
+| 负载 | **天然均衡** | **可能倾斜**（要靠 EPLB / 冗余专家） |
+| 显存收益 | 每卡权重 ÷ TP | 每卡专家 ÷ EP，**但 attention 一份不少** |
+
+⇒ **一句话：EP 优化的是"MoE 的显存与算力"，TP 优化的是"整层的显存"。**
+对 MoE 模型（如 671B 总 / 37B 激活），**EP 的性价比远高于纯 TP**：
+attention 与 dense 层本来就很小（DeepSeek-V3 只有**前 3 层**是 dense），
+把它们复制 N 份的代价，远小于把 **256 个专家**切 N 份带来的收益。
+
+`数字·` 官方部署数据可以做旁证（见 J.8.1）：
+**TP4 + MTP-3** 时单并发 **TPOT 3.2344 ms / TTFT 425.99 ms**；
+而 **TP8 + EP8** 在批 256 下输出 **8618 tok/s**（per-GPU **1077.28**）。
+⇒ **同样的卡数，"EP 那套"是给吞吐用的，"纯 TP 那套"是给单请求延迟用的** ——
+这句话本身就是一道很好的答案。
+
+`坑·` ① 说"EP 就是 MoE 版的 TP"；
+② 忘了 **attention 部分仍然要 TP 来切**，所以真实部署是 **TP + EP 叠加**，不是二选一；
+③ 不知道 EP 的通信是**数据依赖**的 ⇒ 必须配 **EPLB**（§4.7 Q122）与**冗余专家**（§9.4 Q220）。
+
+---
+
+**Q261 `[hard]` CP（context parallel）的通信量怎么算？ring attention 为什么能"免费"？**
+
+`答·` 先看**为什么需要 CP**：attention 的**算力是 O(L²)**、而 **KV 显存只有 O(L)**；
+序列一长（128K / 1M），**显存先爆**，而 TP / PP 都**切不动"序列维"这个轴**
+（TP 切的是权重矩阵，PP 切的是层）。CP 就是**把序列切成 P 段**，
+每个 rank 只存 **1/P 的 KV**。
+
+**但每个 rank 要算自己那一段的完整 attention，就必须看到全部 KV** ⇒
+**ring attention**：把 KV 块在环上转 **P−1 轮**，每轮**算一块、同时把下一块发出去**。
+
+```
+每轮传的 KV 块    = (L / P) × 2 × n_kv_heads × head_dim × 2 bytes
+总通信量（每 rank） = KV 总量 × (P − 1) / P  ≈  KV 总量
+```
+
+`数字·` **为什么说它"几乎免费"**：ring attention 把通信**塞进了 flash attention 的分块计算里** ——
+**算当前块的 attention 时同时发下一块的 KV**，而 **online softmax（Q129）**
+让部分结果可以"边算边合并"。于是当 **L 足够大**（单块计算时间 ≥ 单块传输时间）时，
+**通信能被计算完全掩盖**。
+
+**这和 TP 的 all-reduce 有本质区别**：
+TP 的 all-reduce 是**"必须全员到齐才能继续"的全局栅栏**；
+CP 的 ring 只是**"我在等下一块 KV"** —— 等不到就先算别的，**没有全局同步点**。
+
+`数字·` vLLM 里的两个变体（对照 Q135）：
+**PCP** 会**扩大 world size**，把 prefill 的序列切开算；
+**DCP 不扩大 world size**，只把 **decode 阶段的 KV cache 沿序列维切到已有的 TP rank 上**
+（"用通信换显存"）—— DCP 的 `ag_rs` → `a2a` 后端把**每层 NCCL 调用从 3 次降到 2 次**
+（`parallel.py:126-128`、`:351-354`）。
+
+`坑·` ① 说 CP "减少计算量"—— **算力总量不变**（甚至因环形边界略有增加），CP 省的是**每卡的显存**；
+② 不知道 CP **必须配因果 mask 的分块**（每块要按它在序列中的位置决定能看到多少），
+否则会看到未来的 token；
+③ 不知道 **CP 的前提正是 flash attention 的分块 + online softmax** ——
+**这就是为什么"CP 是个新东西，而 TP 不是"**：没有分块 attention，CP 根本没法把通信藏起来。
+
+---
+
+**Q262 `[进阶]` ★ 五种并行怎么组合？给一个选型决策树。**
+
+`答·` 先记四条硬约束：
+
+```
+① TP ≤ 8           —— 每层两次 all-reduce，必须待在 NVLink 域内（Q133）
+② TP 在最内层       —— 通信最频繁的，放在最快的互联上
+③ PP / DP 在最外层  —— PP 通信量最小、DP 与参数量成正比但与 batch 无关，吃得下跨机 IB
+④ EP 不是独立维度   —— 它叠在 DP + TP 之上（Q259）
+```
+
+**vLLM 的组拓扑顺序就是这条原则的代码化**：
+**`ExternalDP × DP × PP × PCP × TP`**（`parallel_state.py` 的注释）。
+
+**决策树**：
+
+```
+模型单卡放得下吗？
+├─ 放得下 → 还要更高吞吐吗？
+│            ├─ 要   → DP（多副本：最简单、零通信、可容错）
+│            └─ 不要 → 单卡
+└─ 放不下 → 能待在同一个 NVLink 域内吗？
+             ├─ 能   → TP（≤ 8）；KV cache 还不够就再加 DCP（不扩 world size）
+             └─ 不能 → 看模型类型：
+                       ├─ MoE   → TP(节点内) + EP(跨机) + DP，并配 EPLB
+                       └─ Dense → TP(节点内 ≤ 8) + PP(跨机)；长序列再加 CP
+```
+
+`数字·` **三种典型配置**（可以直接背下来对着说）：
+
+| 场景 | 配置 | 为什么这么选 |
+|---|---|---|
+| **单机 8 卡跑 70B** | **TP = 8** | 单层放得下、全在 NVLink 域内、**零跨机通信** |
+| **跨机跑 671B MoE** | **TP = 8（节点内）× EP = 8/16（跨机）+ DP** | attention / dense 复制得起；专家必须切开；**跨机只跑 all-to-all** |
+| **单机 8 卡跑 1M 长上下文** | **TP = 8 + DCP = 8** | DCP 把 decode 的 KV 切到**已有** rank 上，**不扩 world size、不改拓扑** |
+
+`坑·` ① 给出「TP = 64」这类配置（**违反约束 ①**）；
+② 把 PP 放到 TP 里面（**把最频繁的通信放到了最慢的链路上**）；
+③ 忘了**并行度不是越大越好**：TP 每翻一倍，每层的 all-reduce 规模不变但**参与同步的卡变多**，
+小消息下**延迟反而变差**（回到 Q140 的 α-β 模型：小消息优化的是**通信次数与延迟**，不是带宽）；
+④ 答不出「为什么 DP 通常比 TP 更"便宜"」—— **DP 没有每层的通信**，
+它只在每步（训练）或每次路由（MoE 推理）通信一次。
+
+---
+
+## §12 SOTA 算子全景：这一代开源模型到底用了哪些 kernel（Q263–Q270，8 题）
+
+> **这一节回答一个很具体的问题：「你了解最新模型的 kernel 吗？」**
+>
+> 全部清单来自 **本仓库 checkout 的源码**（vLLM `f015d08`，2026-09-09）
+> 与上游开源项目 —— **每条都给了文件路径或仓库名，可以当场搜**。
+>
+> 与前面三节的分工：**§3 讲"一个 kernel 怎么写快"、§7 是"手撕"、本节讲"现在大家在写什么"**。
+> 面算子 / 推理优化岗时，**这一节最能体现你在跟进**；
+> 但也最容易翻车 —— 所以下面所有【实现】标注的内容，
+> **面试时请说"我在 vLLM 的代码里看到…"，而不是"业界标准做法是…"。**
+
+---
+
+### L.1 先说结论：kernel 的来源已经变成五层
+
+**最反直觉的变化**：`csrc/` 里**已经没有 paged attention 和 fused MoE 了** ——
+CUDA 版 PagedAttention v1/v2 在 **2026-07-02 的 PR #47361** 里被**直接删除**，
+现在 `csrc/attention/` 只剩 dtype 转换头文件。
+这一代新 kernel 几乎都在这五个地方：
+
+| 层 | 位置 | 谁在写 | 代表 |
+|---|---|---|---|
+| ① **C++/CUDA 扩展** | `csrc/libtorch_stable/` | vLLM 自己 | `custom_all_reduce`、`merge_attn_states`、`topk_softmax`、`per_token_group_quant`、NVFP4/MXFP4 quant |
+| ② **Triton** | `vllm/v1/attention/ops/`、各模型目录的 `common/ops/` | vLLM 自己 | `triton_unified_attention`、`triton_merge_attn_states`、`triton_fp8_mqa_logits`（DSA indexer）、`triton_turboquant_decode` |
+| ③ **CuTeDSL（CUTLASS Python DSL）** | `vllm/models/<模型>/<厂商>/ops/*_cutedsl.py`、`vllm/model_executor/kernels/linear/cute_dsl/` | vLLM + NVIDIA | V4 的 `sparse_attn_compress_cutedsl`、K3 的 `gemm_rs_ar`、低延迟 BF16 GEMM、`b12x` |
+| ④ **外部库** | 依赖包 | DeepSeek / NVIDIA / 社区 | **FlashMLA**、**FlashInfer**、**DeepGEMM**、**DeepEP**、**QuTLASS**、**FlashKDA**、**AITER**、`fla` |
+| ⑤ **新 DSL** | `kernels/mhc/tilelang*.py`、`flydsl_*` | vLLM | **TileLang**（MHC 残差）、FlyDSL（TurboQuant decode）。**入门版本口径**：**Gluon** 首次出现在 **Triton v3.4.0（2025-07-30）**，命名空间是 **`triton.experimental.gluon`**；**CuTe DSL** 随 **CUTLASS 4.0（2025-06-03）** 发布；**Quack** 是 `Dao-AILab/quack`（CuTe-DSL 写的 kernel 库，H100/B200，**未公布绝对 TFLOPS**） |
+
+**源码锚点**（可以直接 `ls` 验证）：
+
+```
+csrc/                                   # ① 只剩通用/量化/通信 kernel
+vllm/v1/attention/ops/                  # ② 全是 Triton
+vllm/model_executor/kernels/            # ③④ 新的「kernel 抽象层」：按量化格式 × 后端分目录
+    linear/{scaled_mm,mxfp4,mxfp6,mxfp8,nvfp4,mixed_precision,cute_dsl}/
+    attention/dsa/dcp_indexer_cutedsl.py
+    mhc/{tilelang,triton,aiter,torch}.py
+vllm/models/<模型>/{common,nvidia,amd,xpu}/   # ⑤ 新模型按「模型 × 厂商」隔离
+```
+
+**两个可以直接说出口的结构性观察**：
+
+1. **kernel 的目录结构从"按算法"变成了"按格式 × 后端"** ——
+   `kernels/linear/nvfp4/` 下面并列着 `cutlass.py / flashinfer.py / marlin.py / humming.py / fbgemm.py / b12x.py / emulation.py`。
+   **同一件事有 7 个实现**，这是"硬件碎片化"在代码结构上的直接投影。
+2. **新模型采用「模型 × 厂商」隔离布局** ——
+   `vllm/models/kimi_k3/{common,nvidia,amd}/`、`vllm/models/deepseek_v4/{common,nvidia,amd,xpu}/`。
+   NVIDIA / AMD / XPU 各写各的 kernel，`common/` 只放共用的 Triton 与元数据。
+   **面试里说得出这个结构，比背任何一个 kernel 名字都有说服力。**
+
+---
+
+### L.2 按功能分类：这一代真正在用的 kernel
+
+#### L.2.1 注意力（dense）
+
+| Kernel | 位置 / 来源 | 关键点 |
+|---|---|---|
+| **FlashMLA** | `vllm/v1/attention/ops/flashmla.py`；上游 `deepseek-ai/FlashMLA` | MLA decode：**paged KV + split-KV**，缓存的是 **latent（512+64）** 而不是 K/V |
+| **CUTLASS SM100 MLA** | `csrc/libtorch_stable/attention/mla/cutlass_sm100_mla/` | Blackwell 版 MLA：`sm100_fmha_mla_tma_warpspecialized` + `sm100_fmha_mla_reduction`（**TMA + warp specialization + 单独的 reduction kernel**） |
+| **FlashAttention / FA4** | `vllm/model_executor/warmup/fa4_cutedsl_warmup.py`、`kimi_k3/nvidia/vision_fa4_warmup.py` | FA4 已进入 **CuTeDSL 预热路径**（ViT 也在用） |
+| **FlashInfer** | `vllm/v1/attention/backends/flashinfer.py` | 主要后端之一，覆盖 prefill/decode/cascade |
+| **Unified attention** | `vllm/v1/attention/ops/triton_unified_attention{,_diffkv}.py` | **一个 Triton kernel 同时处理 prefill + decode**（不再分成两个 kernel）+ `diffkv` 变体（K/V 的 head_dim 不同，为 MLA 准备） |
+| **FlexAttention** | `vllm/v1/attention/backends/flex_attention.py` | 用 PyTorch 的 score-mod 生成融合 kernel |
+| **分块合并** | `merge_attn_states.cu` + `triton_merge_attn_states.py` | **LSE 合并**（split-KV / FlashDecoding 的收尾，§7 Q190 手撕的就是它） |
+| **DCP 直连** | `csrc/libtorch_stable/attention/dcp_utils/dcp_direct_{a2a_lse_reduce,kv_gather,q_gather}.cu` | decode context parallel 的**三个专用通信 kernel**（不是通用 all-to-all） |
+| **b12x** | `vllm/v1/attention/backends/b12x.py` | **SM12x 的 paged causal attention**，走 CuTeDSL |
+
+#### L.2.2 稀疏注意力 + indexer（**这一代最大的范式变化**）
+
+**共同范式**：先用一个**便宜的 indexer** 给历史 KV 打分 → 只取 top-k 做真正的注意力。
+
+| 模型 | Kernel | 位置 | 关键点 |
+|---|---|---|---|
+| **DeepSeek-V3.2（DSA）** | `triton_fp8_mqa_logits.py` | `vllm/v1/attention/ops/` | **FP8 的 MQA logits** = indexer 打分；配 `rocm_aiter_mla_sparse.py` / `xpu_mla_sparse.py` |
+| **DeepSeek-V3.2** | `dcp_indexer_cutedsl.py` | `kernels/attention/dsa/` | indexer 上了 **CuTeDSL**，并且和 **DCP** 组合 |
+| **DeepSeek-V4** | `sparse_attn_compress_cutedsl.py` | `models/deepseek_v4/nvidia/ops/` | 源码注释写明提供 **"C4 fused 和 C128 split kernels"** —— 对应两个不同的**压缩比** |
+| **DeepSeek-V4** | `fused_indexer_q_cutedsl.py` / `fused_indexer_q.py` | 同上 / `common/ops/` | indexer 的 Q 走 **MXFP4**（`MXFP4_BLOCK_SIZE`） |
+| **DeepSeek-V4** | `compressor.py` + `fused_compress_quant_cache.py` | `models/deepseek_v4/` | **逐层压缩比** `config.compress_ratios[layer_id]`；`compress_ratio == 1` 的层**不压缩** |
+| **MiniMax-M3（MSA）** | `indexer.py`、`index_topk.py`、`sparse_attn.py`、`nvidia/msa_cutlass_sparse_decode.py` | `models/minimax_m3/` | **MSA = MiniMax Sparse Attention**：**CUTLASS 稀疏 decode** + 独立 indexer + index top-k |
+| **GLM-MoE-DSA** | 直接复用 `vllm.models.deepseek_v32` | `registry.py` | GLM 的 DSA 变体**直接复用 DeepSeek-V3.2 的实现** |
+
+> **可回答的一句话**：**「2026 年的注意力竞争，已经从『怎么把 dense attention 写快』变成了『怎么把 indexer + top-k 写便宜』。」**
+
+#### L.2.3 线性注意力 / SSM
+
+| Kernel | 位置 | 关键点 |
+|---|---|---|
+| **GatedDeltaNet decode** | `csrc/libtorch_stable/gdn/fused_gdn_decode_kernel.cu`、`v1/attention/backends/gdn_attn.py` | 融化的 GDN decode |
+| **KDA（Kimi Delta Attention）** | `csrc/libtorch_stable/kimi_k3/fused_kda_decode_kernel.cu`（NVIDIA 版权）+ `csrc/flashkda_registration.cpp` | **FlashKDA** 注册为 torch op：`fwd(q,k,v,g,beta,scale,out,workspace,A_log,dt_bias,lower_bound,initial_state,final_state,cu_seqlens,checkpoint_state,checkpoint_offsets)`。`kDimK=kDimV=128`、**短卷积宽度 4**、256 线程 |
+| **KDA chunkwise 四形态** | `models/kimi_k3/{nvidia,amd}/ops/third_party/kda/{chunk,chunk_intra,chunk_intra_token_parallel,fused_recurrent}.py` | **prefill 用 chunk 并行、decode 用 recurrent** —— 这是所有线性注意力的通用套路 |
+| **Mamba-2 selective scan** | `csrc/libtorch_stable/mamba/selective_scan_fwd.cu`、`v1/attention/backends/mamba2_attn.py` | SSD 形式的分块扫描 |
+| **ShortConv** | `csrc/libtorch_stable/short_conv*`、`v1/attention/backends/short_conv_attn.py` | 线性注意力前的短卷积，**状态也要缓存** |
+| **RecoverSSM** | `models/kimi_k3/nvidia/ops/recoverssm.py` | **投机解码的 accepted-state 恢复**（见 Q267） |
+| **KDA skinny GEMM** | `models/kimi_k3/nvidia/ops/cute_dsl/kda_skinny_gemm.py` | 线性注意力的 GEMM 形状极"瘦"（M 很小），要专门写 |
+
+#### L.2.4 MoE 与路由
+
+| Kernel | 位置 | 关键点 |
+|---|---|---|
+| **DeepGEMM MegaMoE** | `models/deepseek_v4/nvidia/ops/prepare_megamoe.py` 消费 | **V4 的 MoE 走 DeepGEMM 的 MegaMoE kernel**；vLLM 侧只写一个 Triton **input-staging** kernel：把 hidden 量化成 **FP8 + E8M0 group scale**，并把 routing top-k 重排成 **int64/float32 布局** |
+| **路由 top-k** | `csrc/libtorch_stable/moe/{topk_softmax,topk_softplus_sqrt,grouped_topk}_kernels.cu` | `topk_softplus_sqrt` 就是 **`Sqrt(Softplus(·))`** 打分（V4 系）；`grouped_topk` 是节点受限路由 |
+| **DSV4 专用 top-k** | `kernels/.../router/dsv4_topk.py` | Triton，`_TOPK = 6`，带 `correction_bias`（**无辅助损失的偏置纠正**），注明**改编自 SGLang 的 `moe_fused_gate.py`** |
+| **permute / unpermute** | `csrc/libtorch_stable/moe/permute_unpermute_kernels/` | token 按专家重排（all-to-all 前后的那一步） |
+| **moe_align + sum** | `csrc/libtorch_stable/moe/moe_align_sum_kernels.cu` | 对齐 block + 加权求和**融成一个** |
+| **fused MoE 后端（29 个）** | `vllm/model_executor/layers/fused_moe/experts/` | `triton_*` / `cutlass_*` / `deep_gemm_*` / `flashinfer_*` / `trtllm_*` / `aiter_*` / `marlin_moe` / `gpt_oss_triton_kernels_moe` / `batched_deep_gemm_moe` |
+| **低精度 MoE** | 同上 | `mxfp4` / `mxfp8` / `nvfp4` / `mxint4` / `int4_emulation` / `ocp_mx_emulation` / `fused_humming_moe` |
+| **EP 通信** | `fused_moe/prepare_finalize/` | `deepep_ll` / `deepep_ht` / **`deepep_v2`** / `nixl_ep` / **`mori`** / `flashinfer_nvlink_{one,two}_sided` |
+
+#### L.2.5 量化 GEMM 与 KV cache 压缩
+
+| Kernel | 位置 | 关键点 |
+|---|---|---|
+| **NVFP4 / MXFP4 / MXFP8 / MXFP6** | `kernels/linear/{nvfp4,mxfp4,mxfp8,mxfp6}/` | 每种格式都并列 5–8 个后端实现 |
+| **block-wise FP8 scaled_mm** | `csrc/.../w8a8/cutlass/c3x/scaled_mm_blockwise_sm{90,100,120}_fp8.cu` | **按架构分文件**：SM90 / SM100 / SM120 各一份 |
+| **MXFP4 blockwise MoE** | `csrc/.../quantization/fp4/mxfp4_blockwise_moe_kernel.cu` | 直接吃 MXFP4 权重的 MoE |
+| **NVFP4 KV cache（MLA 专用）** | `csrc/libtorch_stable/nvfp4_ds_mla_cache_kernels.cu` | **`concat_and_cache_mla` 的 NVFP4 版本**：`kv_c bf16[T,512]` + `k_pe bf16[T,64]` → **`kv_cache uint8[blocks, block_size, 352]`**，即 **352 字节/token/block**（(推断) = 256 字节 FP4 的 `kv_c` + 32 字节 block scale + 64 字节的 `k_pe`）。**只在 SM100 目标下编译** |
+| **TurboQuant（K3V4）** | `v1/attention/ops/{triton_turboquant_decode,triton_turboquant_store,flydsl_turboquant_decode}.py`、`backends/turboquant_attn.py` | **K 用 3 bit、V 用 4 bit**；slot 布局 `[key_packed | value_fp16]`，`head_dim=256` 时 **100 字节 key + 512 字节 value = 612** |
+| **Hadamard 变换** | `csrc/.../quantization/hadamard/hadacore/hadamard_transform_cuda.cu` | 量化前的旋转（抑制 outlier），DSA 系也在用 |
+| **融合量化** | `csrc/.../quantization/fused_kernels/{fused_silu_mul_block_quant,fused_layernorm_dynamic_per_token_quant}.cu` | 把 act 函数/归一化和量化融进一个 kernel |
+| **W4A16 / W4A8** | `marlin/`、`machete/`、`cutlass_w4a8/`、`gptq_allspark/`、`conch.py`、`humming.py` | Marlin（通用）、Machete（Hopper mixed-input）、**Conch**（uint4/uint8，group 128 或 per-channel）、**Humming**（出现于全部格式目录 → 是一个**跨格式的 kernel 家族**） |
+
+**三个「代码里能验证」的硬约束**（比背格式名有用得多）：
+
+| 约束 | 事实 |
+|---|---|
+| **`cutlass_scaled_mm` 的输入组合极窄** | 只支持 **`{e4m3 × e4m3, int8 × int8} → fp16/bf16`**；**没有 e5m2、没有 fp8×int8 混合、输出不是 int32**；SM100 上**明写 int8 not supported**（`csrc/libtorch_stable/quantization/w8a8/cutlass/scaled_mm_entry.cu`） |
+| **KV cache 量化 scale 的粒度** | vLLM 里是 **per-tensor `[1]` 或 per-attention-head `[num_heads]`**，**不是 per-token**（kernel 内有断言）。⇒ 被问「KV cache 量化怎么做的」时，**不要说 per-token** |
+| **`per_token_group_quant` 的 group_size 是运行期参数** | 不是硬编码的 128；`column_major` 也是**由 stride 推断**（`output_s.stride(0) < output_s.stride(1)`），不是一个开关 |
+
+**AWQ 在 CUDA 上的实际选择顺序**（`choose_mp_linear_kernel` 运行期决定，**不是编译期写死的**）：
+
+```
+CutlassW4A8 → Machete → Marlin → Conch → Exllama → TritonW4A16 → Humming
+```
+
+⇒ **「同一个量化格式在不同机器上跑的是不同 kernel」这件事，在代码里是显式的一串 if。**
+（对照 Q269 的"五步判据"。）
+
+**两个格式的精确定义**（很容易记混，面试常考）：
+
+| | **NVFP4** | **MXFP4** |
+|---|---|---|
+| block size | **16** | **32** |
+| scale dtype | **E4M3**（+ 二级 FP32 scale） | **E8M0** |
+| 谁在用 | NVIDIA Blackwell 生态 | **gpt-oss**（官方 model card 原话：*post-trained with **MXFP4** quantization of the MoE weights*） |
+
+**一个具体模型的量化内核**：**Kimi K2 Thinking 是 INT4 W4A16，`group_size = 32`（不是 128）**，
+用 `compressed-tensors` 的 `pack-quantized` 格式，`input_activations: null`；
+真正执行的算子是 **`moe_wna16_marlin_gemm`**。
+⇒ **"W4A16 的 group_size 是多少"不要一律答 128** —— 有的是 32，有的是 128，**查 config**。
+
+---
+
+#### L.2.6 通信与「通算融合」——**最值得讲的一类**
+
+| Kernel | 位置 | 关键点 |
+|---|---|---|
+| **custom all-reduce** | `csrc/custom_all_reduce.cuh` + `custom_all_gather_reduce_scatter.cuh` | CUDA IPC + P2P + **单 kernel 完成**（§4 的主线） |
+| **QuickReduce** | `csrc/quickreduce/`、`csrc/custom_quickreduce.cu` | ROCm 侧 |
+| **FlashInfer all-reduce** | `device_communicators/flashinfer_all_reduce.py`、`flashinfer_pcie_ipc_all_reduce.py` | PCIe-IPC / MNNVL 两条路 |
+| **GEMM + RS + AR 融合** | `models/kimi_k3/nvidia/ops/cute_dsl/gemm_rs_ar.py` | **SM100 BF16 GEMM 直接融合 TP 的 reduce-scatter / all-reduce**，基于 **CUTLASS 的 Blackwell distributed GEMM-RS example**，用 `torch.distributed._symmetric_memory` |
+| **AllReduce + RMSNorm + RS（early exit）** | `.../cute_dsl/latent_moe_tail/allreduce_rmsnorm_reduce_scatter_early_exit.py` | 从 **FlashInfer 的 `oneshotAllreduceFusionKernel`** 特化而来；**CTA-specialized + ReduceScatter early exit** |
+| **fused add + multicast GEMM** | `.../latent_moe_tail/fused_add_multicast_gemm.py`、`fused_add_multicast_skinny_gemm.py` | NVIDIA 2025–2026 版权；**用 multicast 把激活一次性广播进 GEMM**（= 把 all-gather 藏进 GEMM 的加载） |
+| **latent MoE tail** | `models/kimi_k3/nvidia/ops/latent_moe_tail.py` + `ops/cute_dsl/latent_moe_tail/` | 一整套"**MoE 尾部**"融合 kernel（含 `lamport_copy.py` 的 Lamport 式同步原语） |
+| **symm_mem / pynccl / GIN** | `device_communicators/symm_mem.py`、`pynccl_allocator.py` | NCCL 对称内存窗口 + 设备 API |
+
+> **这一栏的意义**：§5.3 讲的 DBO 是**调度层**的重叠；
+> 而这一代的融合是**把通信指令直接写进 GEMM kernel 的 epilogue / load 阶段**。
+> **从"两个 kernel 并发"进化到"一个 kernel 里既算又通"。**
+
+---
+
+### L.3 按模型对照：每个模型"新"在哪
+
+> 这一栏全部来自 **vLLM registry 与模型目录**（【实现】级事实）。
+> **我没有这些模型的官方架构报告**，所以只写"代码里能看到什么"，
+> **不写"官方说它用了什么"**。
+
+| 模型 | vLLM 实现位置 | 代码里能看到的 kernel / 结构特征 |
+|---|---|---|
+| **DeepSeek-V3.2** | `vllm.models.deepseek_v32` | DSA indexer（FP8 MQA logits）+ MLA sparse + DCP indexer |
+| **DeepSeek-V4** | `vllm.models.deepseek_v4`（另有 `amd/`、`xpu/`） | `compressor.py`（**逐层压缩比**）+ `sparse_attn_compress_cutedsl`（**C4 / C128**）+ `sparse_mla.py` + **MXFP4 的 indexer Q** + **UE8M0 FP8 的 NoPE 量化** + **DeepGEMM MegaMoE** + `o_proj.py` + MTP |
+| **Kimi-K3** | `vllm.models.kimi_k3`（`nvidia/`、`amd/`） | **KDA**（FlashKDA 注册 op + chunk/recurrent 四形态）+ MLA（`fused_mla_key_concat_kv_cache`）+ **RecoverSSM** + **低延迟 GEMM 查表** + latent MoE tail 全套融合 kernel |
+| **MiniMax-M2** | `model_executor/models/minimax_m2.py` | 全注意力 + GQA + `use_routing_bias` |
+| **MiniMax-M3-Sparse** | `vllm.models.minimax_m3` | **MSA**：indexer + index top-k + **CUTLASS 稀疏 decode** + Gemma 式 RMSNorm（`x·rsqrt(mean(x²)+eps)·(1+w)`）+ `swiglu_oai` |
+| **GLM-MoE-DSA / GLM-5-Next** | `vllm.models.deepseek_v32` / `vllm.models.glm5next` | GLM 的 DSA 变体**复用 DeepSeek-V3.2 的实现**；GLM-5-Next 有独立 MTP |
+| **Qwen3-Next / Qwen3.5 / Qwen4-Exp** | `model_executor/models/qwen3_next.py`、`qwen3_5.py`、`vllm.models.qwen4_exp` | **Qwen3-Next = Gated DeltaNet + Gated Attention，3:1 交替，48 层**（官方 README），kernel **来自 `fla`**（vLLM 把 `fla` 的算子 vendored 进来 ⇒ 对应 `gdn_attn` / `linear_attn` 后端）；配 MTP |
+| **gpt-oss** | `model_executor/models/gpt_oss.py` | **OpenAI `triton-kernels`** 的 MXFP4 MoE（`gpt_oss_triton_kernels_moe.py`）+ attention sinks |
+| **Llama 4** | `model_executor/models/llama4.py` | iRoPE：chunked local（**1 = 用 RoPE**）+ NoPE global + 推理期温度缩放 |
+| **Bailing / LongCat / Nemotron-H / Seed-OSS / Step-3.5 / Ernie4.5** | 各自的 `model_executor/models/*.py` | 有 `bailing_moe_linear`（混合线性）、`longcat_flash_ngram`（**n-gram 投机**，配 `ngram_embedding_kernels.cu`）、`nemotron_h`（混合 Mamba） |
+
+**另一个可以直接说的事实**：vLLM 的 registry **已显式支持"模型放在 `vllm.model_executor.models` 之外"** ——
+源码注释原文是 *"Allow registry entries to point at fully-qualified module paths
+(e.g. `vllm.models.deepseek_v4`) for models that live outside the legacy
+`vllm.model_executor.models` flat layout."*
+**⇒ 最激进的模型已经不走"平铺目录"了，而是各自成包、按厂商分 kernel。**
+
+---
+
+### L.4 五条范式变化（面试里最值得说的）
+
+| # | 变化 | 证据 |
+|---|---|---|
+| ① | **从 dense attention → indexer + 稀疏** | DSA / V4 compress / MiniMax MSA / GLM-MoE-DSA 四条线同时在做 |
+| ② | **从 FP8 → FP4/MXFP4，且格式爆炸** | `kernels/linear/` 下 mxfp4/mxfp6/mxfp8/nvfp4 各配 5–8 个后端 |
+| ③ | **从"通信与计算并发" → "通信写进 kernel"** | `gemm_rs_ar`、`allreduce_rmsnorm_reduce_scatter_early_exit`、`fused_add_multicast_gemm` |
+| ④ | **从 CUDA C++ → DSL** | CuTeDSL / Triton / **TileLang**（MHC）/ FlyDSL 并存；`csrc/` 里的新 kernel 明显变少 |
+| ⑤ | **KV cache 从 BF16 → FP8 → FP4 / 3-bit** | `nvfp4_ds_mla_cache`（**352 B/token**）、TurboQuant **K3V4** |
+
+---
+
+### L.5 上游开源算子项目（带官方数字，**可以引用**）
+
+> L.2/L.3 是"**vLLM 里有什么**"；这一栏是"**这些 kernel 的上游是谁、官方数字是多少**"。
+> 引用时**必须连硬件口径一起说** —— 这些数字几乎全部来自 H800 / H100 / B200 的官方 README。
+
+| 项目 | 仓库 | 它提供什么 | 官方数字（含硬件） |
+|---|---|---|---|
+| **FlashMLA** | `deepseek-ai/FlashMLA` | MLA 的 **dense / sparse** × **prefill / decode**；支持矩阵里还有一条 **"Fused Norm RoPE Attn RoPE Cast"**（SM100，只有 V4/V4.1） | **H800 SXM5 + CUDA 12.8**：dense decode memory-bound **3000 GB/s**、compute-bound 最高 **660 TFLOPS**；**FP8 稀疏 decode 410 TFLOPS**（`topk=32768` 时可到 **460**）；稀疏 prefill **640 TFLOPS（H800）/ 1450 TFLOPS（B200，CUDA 12.9）** |
+| **FlashMLA 的 KV 格式** | 同上 | `head_dim_k = 576`（V3/V3.1/V3.2）/ **512（V4/V4.1）**，`head_dim_v = 512`；MHA 模式是 192/128、128 | **FP8 KV（V3.2）= 每 token 656 B** = 512 B 的 `float8_e4m3`（量化过的 NoPE） + **16 B（4 个 fp32 scale，每 128 个 e4m3 一个）** + **128 B（64 个 bf16 的 RoPE，不量化）**。**V4/V4.1 按 k_cache 最后一维区分：584（V4）/ 528（V4.1）/ 288（V4.1 fp4）**；page block 先存 data 行再存 scale 行 |
+| **FlashMLA 的调度技法** | 同上 + `docs/*-deep-dive.md` | 寄存器受限下的 **"seesaw" warpgroup 调度**（把 64×512 输出纵向切成 `O_L`/`O_R`，两组 warpgroup 交替占用 Tensor Core 与 CUDA Core）；**Programmatic Dependent Launch（PDL）** 把 `splitkv_mla` 与 `combine` 两个 kernel 重叠；自带 **tile scheduler** 均衡 SM 负载 | FP8 稀疏 decode 用 **CTA cluster = 2 + DSM + `st.async` + cluster transaction barrier** 做去量化的 "crossover"：**410 vs 250 TFLOPS** |
+| **DeepGEMM** | `deepseek-ai/DeepGEMM`（Python 包 `2.8.0`，MIT） | **已不是"FP8 GEMM 库"**，官方定位是"统一的 tensor core kernel 库"：**FP8/FP4/BF16 GEMM + 融合 MoE 且通信重叠（Mega MoE）+ lightning indexer 的 MQA scoring + HyperConnection（HC）**；全部 kernel **DeepJIT 运行时编译** | 关键 API：`fp8_gemm_nt` / `fp4_gemm_nt` / `fp8_fp4_gemm_nt`、**分组 GEMM** `m_grouped_fp8_gemm_nt_{contiguous,masked}`（masked 就是 dropless MoE）、**`fp8_fp4_mega_moe` / `bf16_mega_moe` / `get_symm_buffer_for_mega_moe` / `mega_mhc` / `tf32_hc_prenorm_gemm`**、**indexer 打分 `fp8_mqa_logits` / `fp8_paged_mqa_logits` / `fp8_fp4_sparse_mqa_logits`**、布局工具 `transform_sf_into_required_layout`、`get_mn_major_tma_aligned_packed_ue8m0_tensor` |
+| **FlashAttention-3** | `Dao-AILab/flash-attention`（`hopper/`） | Hopper 专用：WGMMA + TMA + warp specialization + FP8 | **H100**：FP16 最高 **740 TFLOPs/s（约 75% 利用率）**，FP8 接近 **1.2 PFLOPs/s**；论文里点明 **FA2 在 H100 上只有约 35% 利用率** |
+| **FlashAttention-4** | 同上（`flash_attn/cute/`，PyPI `flash-attn-4`） | **Blackwell 优先、纯 CuTe-DSL** 重写 | **B200 BF16 最高 1613 TFLOPs/s（约 71%）**，对 cuDNN 9.13 最高 **1.3×**、对 Triton **2.7×**；技法：**TMEM + 完全异步 `tcgen05.mma`（单 CTA 最大 128×256×16）+ 2-CTA MMA（256×256×16）+ 条件式 softmax rescaling + 软件模拟 `exp2`**。**vLLM 已把 FA4 vendored 进来（forward-only）** |
+| **FlashInfer** | `flashinfer-ai/flashinfer` | attention / GEMM / MoE kernel 库，vLLM 与 SGLang 的主要后端之一 | 论文（MLSys 2025）口径：**ITL 降低 29–69%**、长上下文场景降低 **28–30%** |
+| **Flash-Decoding** | Stanford CRFM 博客 + FA 包（≥ v2.2） | **split-KV + LSE 合并**三步走 | **A100** 上 attention 本身最高 **50×** 于 FlashAttention、端到端最高 **8×** |
+| **ring-flash-attention** | `zhuzilin/ring-flash-attention` | 上下文并行（CP）的环形注意力 | **8×H800、zigzag ring**：forward 达理论值的 **85.2%**、forward+backward 达 **90.2%** |
+
+| **DeepEP** | `deepseek-ai/DeepEP` | 两套 kernel：**normal（高吞吐）** 与 **low-latency（纯 RDMA + hook 式通信）**；low-latency 有一个硬约束——**`num_qps_per_rank` 必须等于本地专家数** | 测试硬件 **H800 + CX7 InfiniBand 400 Gb/s（单卡约 50 GB/s 上限）**。**V1 normal**：intranode EP=8 时 dispatch **153 GB/s** / combine **158 GB/s**（NVLink，H800 上限约 160）；internode EP=32 时 **58 / 57 GB/s**（RDMA）。**V1 low-latency**：dispatch **77 µs @EP=8** → **194 µs @EP=256**；combine **114 µs @EP=8** → **360 µs @EP=256**（EP=8 时等效 98 / 127 GB/s）。**V2（SM100）**：EP=8 用 **64 个 SM** 时 NVLink **726 GB/s** dispatch / **740 GB/s** combine；只用 24 个 SM 时降到 **643 / 675 GB/s** |
+| **ThunderKittens** | `HazyResearch/ThunderKittens` | 一套"可爱"的 Hopper/Blackwell 模板库，被 **Mamba-2 / Based** 等线性模型用 | 论文 **arXiv:2410.20399** |
+| **MegaBlocks** | `stanford-futuredata/megablocks` | **dropless MoE**：不做 token drop，用块稀疏 GEMM 处理不均衡 | 论文 **arXiv:2211.15841**；**8× A100 SXM4 80GB** 上对 Tutel 最高 **40%**、对 Megatron-LM 最高 **2.4×** 加速 |
+| **Lightning Attention** | **`OpenNLPLab/lightning-attention`** | TransNormer 的 I/O-aware 实现：**块内左乘 / 块间右乘**绕开 cumsum；算法出处 **arXiv:2307.14995**（TransNormerLLM）、Triton 实现出处 **arXiv:2401.04658**（Lightning Attention-2） | ⚠️ **`MiniMax-AI/lightning-attention` 这个仓库不存在（404）** —— MiniMax-01 官方仓库里**没有任何 kernel 源码**，kernel 在 **OpenNLPLab** 名下 |
+| **vLLM 的 all2all 后端 × 量化格式** | `vllm/model_executor/layers/fused_moe/prepare_finalize/` | 后端不是随便配的，**每个后端只支持特定量化格式** | **`deepep_high_throughput`：只支持 block-wise FP8**（其他格式直接报错）；`deepep_low_latency`：FP8 + 异步；`flashinfer_nvlink_two_sided`：**NVFP4 / FP8**；`naive`：全部格式但**不异步** |
+
+**四条"一开口就能看出你真读过一手来源"的纠错**（都是三方解读里传错的）：
+
+| 常见错误 | 正确的 |
+|---|---|
+| 「NSA 是 arXiv:2502.13189」 | **NSA = arXiv:2502.11089**（DeepSeek，2025-02-16）；**2502.13189 是 MoBA**（Moonshot，2025-02-18） |
+| 「MiniMax 的 lightning attention 在 `MiniMax-AI/lightning-attention`」 | **该仓库 404**；官方实现在 **`OpenNLPLab/lightning-attention`**（`pip install lightning_attn`） |
+| 「Llama 4 的 chunked attention 在 NoPE 层」 | **相反**：**RoPE 层（36 层）才是 chunked local（窗口 8192）**，NoPE 层（12 层）是全局 full —— 见本节末尾的详细更正 |
+| 「FlashInfer 的 trtllm-gen 在 Blackwell 上有 N TFLOPs」 | **没找到官方数字** —— 这类数字**不要编**；能引的是 FlashInfer 论文（MLSys 2025）的**相对值**（ITL −29~69%） |
+| 「`openai/triton-kernels` 是 gpt-oss 的 kernel 仓库」 | **该仓库 404**；真实上游在 **`triton-lang/triton` 的 `python/triton_kernels`**。另外 `moe_sum` **不是**它的算子（是 vLLM 自己的） |
+| 「SonicMoE 是微软的」 | **是 Dao-AILab / Tri Dao 团队的**（arXiv:2512.14080） |
+| 「DeepGEMM 的 1550 TFLOPS 是通用数字」 | **只在 H800 上**；而且它的性能表 baseline 是 *"our internally and carefully optimized implementation based on CUTLASS 3.6"*，表内最大差距 **2.7×** —— **没有 「1.1× vs cuBLAS」这种措辞** |
+| 「sgl-kernel 里有 `moe_fused_gate.cu`」 | **`sgl-kernel/` 目录已不存在**（已迁到 `python/sglang/kernels/aot/`）；且 `topk_softmax_kernels.cu` 的真名是 `moe_topk_softmax_kernels.cu`，**`moe_fused_gate.cu` 不存在（已改成 Triton）** |
+| 「EPLB 有 `rebalance_experts_global`」 | **没有这个函数**；`__all__ = ['rebalance_experts']`，所谓 global 策略就是 `rebalance_experts_hierarchical(weight, num_replicas, 1, 1, num_gpus)` |
+
+**两条把 §12 和 V3 源码对上的交叉验证**（很值得在面试里主动说）：
+
+1. **DeepGEMM 的 `fp8_mqa_logits` / `fp8_paged_mqa_logits` ↔ vLLM 的 `triton_fp8_mqa_logits.py`**
+   ⇒ 两处指的是**同一件事**：**DSA / V4 的 lightning indexer 打分**。
+2. **DeepGEMM 的 `mega_mhc` / `tf32_hc_prenorm_gemm` ↔ vLLM 的 `kernels/mhc/tilelang.py`**
+   后者里那个 `_torch_hc_prenorm_gemm(x, fn, out, sqrsum)` 做的正是 `x @ fn.T` 与 `sum(x²)`
+   ⇒ **"HC = HyperConnection"，就是 V4 那一代换掉的残差结构**；
+   vLLM 在**参考实现里用 TileLang / Triton / torch 三种方式并存**，正式路径走 DeepGEMM 的 `mega_mhc`。
+
+**GIN 自己的实测数字**（arXiv:2511.15076，baseline 是 **NVSHMEM-only**，1–8 节点）：
+GIN 的 GDAKI 路径 **put+signal 16.7 µs**，对照 NVSHMEM IBGDA 的 **24.3 µs**；
+low-latency dispatch **185.28 GB/s / 40.62 µs**。
+⚠️ 该论文**没有点名网卡型号、也没有 Blackwell 结果** —— 引用时别说成「在 H100 上」。
+
+**DeepEP 的四个版本口径**（很容易讲混）：
+① **hook 机制（`return_recv_hook`）从 2025-02-24 的首次提交就有**，不是后来补的；
+② **EPv2 的公开版本是 2026-04-30**（`__version__ = '2.1.0'`），从 **NVSHMEM 换成 NCCL Gin**；
+③ **V2 没有公布 low-latency 延迟表**，且 Notes 明说 *0 SM RDMA low-latency EP is no longer supported* —— **不要把 V1 的 77 µs / 114 µs 安到 V2 上**；
+④ 「低延迟内核用固定的 N 个 SM」**没有官方依据**（官方原话：*there is no SM control API for the low-latency kernels*）；有出处的是 DeepSeek-V3 §3.2.2 的 **20 SMs / 10 channels**。
+
+**还有一个可以直接引用的「代码考古」事实**：
+vLLM 在 **2026-07-02 的 PR #47361 里删掉了 CUDA 版 PagedAttention v1 / v2**
+⇒ 这解释了为什么 `csrc/attention/` 现在只剩下 dtype 转换的头文件 ——
+**paged attention 的活被交给了 FlashInfer / FA4 / `triton_unified_attention`，
+`csrc/` 只保留量化、通信与真正通用的件**。
+**面试里说得出"vLLM 把 PagedAttention 的 CUDA 实现删了、改用统一 Triton kernel + FlashInfer"，
+比背 PagedAttention 的定义更能证明你在读代码。**
+
+> **⚠️ 一处必须纠正的常见错误（也是本材料 §10 J.9 的第 12 条陷阱）**：
+> Llama 4 的 **`no_rope_layers` 字段名与语义相反** —— **`1` 表示"用 RoPE"，`0` 表示 NoPE**。
+> 因此 **`attention_chunk_size = 8192` 的 chunked local attention 作用在 RoPE 层（36 层），
+> 而 NoPE 层（12 层）才是全局 full attention**。
+> 判定依据是 vLLM 源码（本 checkout `f015d08`）：
+> `self.nope = no_rope_layers[layer_idx] == 0`、
+> `use_chunked_local_attn = not self.nope and config.attention_chunk_size`、
+> `self.global_layer = no_rope_layers[layer_idx] == 0`。
+> **三方解读（包括本材料自己的一轮调研底稿）很容易把它讲反 —— 请以源码为准。**
+
+---
+
+**Q263 `[进阶]` ★ vLLM 的 kernel 现在分几层？为什么"csrc 里找不到新 kernel 了"？**
+
+`答·` 五层（见 L.1 的表）：**C++/CUDA 扩展（`csrc/`）、Triton、CuTeDSL、外部库、新 DSL**。
+`csrc/` **没有消失，而是"下沉"了** —— 它现在只留三类东西：
+① **通用且稳定的**（`custom_all_reduce`、`merge_attn_states`、`topk_softmax`、`cache_kernels`）；
+② **量化**（`marlin/`、`machete/`、`w8a8/cutlass/`、`fp4/`）；
+③ **跨平台的公共件**（`libtorch_stable/` 这个名字本身就是"稳定 ABI 层"的意思，配 `torch/csrc/stable`）。
+
+**新东西去哪了**：**Triton**（快、好改、跨厂商）+ **CuTeDSL**（要极致性能时的 CUTLASS Python DSL）
++ **`vllm/models/<模型>/<厂商>/ops/`**（模型专用 kernel）。
+
+`数字·` 两个可验证的对比：
+- `kernels/linear/nvfp4/` 一个目录下并列 **`cutlass / flashinfer / marlin / humming / fbgemm / b12x / emulation`** 等实现；
+- `vllm/model_executor/layers/fused_moe/experts/` 下有 **29 个 fused MoE 后端文件**。
+
+`坑·` ① 说"vLLM 现在都用 Triton 了"—— **CuTeDSL 的比例在快速上升**，而且**最难的活仍然在 CUDA C++ 里**；
+② 不知道 **CuTeDSL 是 CUTLASS 的 Python DSL**（不是 Triton 的别名）；
+③ 把 `libtorch_stable` 当成"稳定版目录" —— 它是**基于 `torch/csrc/stable` ABI 的扩展层**，
+目的是**让 kernel 扩展不随 PyTorch 版本反复重编**。
+
+---
+
+**Q264 `[hard]` ★ 什么是"稀疏注意力 + indexer"？DeepSeek 的 DSA 和 MiniMax 的 MSA 是同一件事吗？**
+
+`答·` **范式相同、实现不同。**
+
+**相同的范式**（三件套）：
+
+```
+① indexer：用一个便宜的打分器给历史 KV 打分
+② top-k：选出要看的块（不是"每个 query 看全部"）
+③ 稀疏 attention：只对选中的块做注意力
+```
+
+**为什么必须这么设计**：dense attention 的**算力是 O(L²)**、KV 显存只有 O(L)；
+序列到 128K/1M 时**算力先崩**。而"省显存"的路线（MLA / GQA）**完全帮不上算力的忙** ——
+这正是 §10 Q252 说的"**MLA 压的是每个 KV 多大，稀疏压的是要读多少个 KV**"。
+
+**不同的实现**（代码级差异）：
+
+| | **DeepSeek DSA**（V3.2） | **MiniMax MSA**（M3） |
+|---|---|---|
+| indexer 打分的算子 | **FP8 的 MQA logits**（`triton_fp8_mqa_logits.py`） | 独立 indexer 模块 + **index top-k**（`indexer.py` / `index_topk.py`） |
+| 稀疏 attention 怎么算 | MLA sparse（ROCm/XPU 各有实现）+ **DCP indexer** | **CUTLASS 稀疏 decode**（`msa_cutlass_sparse_decode.py`） |
+| 有没有"压缩"这一路 | **有**（V4 的 compressor，逐层压缩比） | 代码里看到的是 indexer + top-k，**没有 compressor** |
+| 特色细节 | indexer 的 Q 走 **MXFP4**（V4） | 融合 kernel 里**同一个 RoPE 表**同时服务主分支和 index 分支（`fused_minimax_m3_qknorm_rope_kv_insert_kernel.cu`） |
+
+`数字·` **DeepSeek-V4 的压缩比是"逐层"的**：
+`self.compress_ratio = max(1, config.compress_ratios[layer_id])`，
+且 **`compress_ratio == 1` 的层根本不压缩**；
+对应的 CuTeDSL kernel 注释写明提供 **"C4 fused 和 C128 split kernels"**
+（(推断) 对应两个不同的压缩比档位）。
+
+`坑·` ① 把"稀疏注意力"和"省 KV 显存"混为一谈（**稀疏省的是算力**）；
+② 说"indexer 就是一个小 attention" —— 那它为什么能便宜？（**低维 + 低精度 + 只需要 logits，不需要 value**）；
+③ 忘了追问必来的那一层：**indexer 本身的开销是 decode 路径上的固定成本，序列短时是负收益**（见 §10 Q252 的 crossover 长度）。
+
+---
+
+**Q265 `[hard]` ★ DeepSeek-V4 的注意力 kernel 和 V3 有什么不同？**
+
+`答·` 四条差异，都能在代码里指出来：
+
+| # | V3（MLA） | V4 |
+|---|---|---|
+| ① | KV cache 存 **`c_KV`(512) + `k^R`(64)** 的 latent | 多了 **"压缩"这一路**：`compressor.py` + `fused_compress_quant_cache.py`，**逐层压缩比** `config.compress_ratios[layer_id]` |
+| ② | 融合 kernel 只做 **QK-Norm + RoPE + KV 写缓存** | 融合得更狠：Q 侧 **per-head RMSNorm（无 weight）+ GPT-J RoPE**；KV 侧 **GPT-J RoPE + UE8M0 FP8 量化 + paged 写缓存**，全部在**一个 kernel、一个 grid 里按 warp 分派 Q/KV 工作**（源码称之为 **"horizontally-fused"**） |
+| ③ | — | 多了一个 **`fused_inv_rope_fp8_quant`**：**逆 RoPE + block-scaled FP8 量化**，而且输出 scale 已经预先排成 **MN-major TMA 对齐**（SM90 用 FP32、**SM100 用 INT32-packed UE8M0**），好让后面的 `fp8_einsum` 省掉一次 `transform_sf_into_required_layout` |
+| ④ | FP8 是 **1×128 / 128×128** 的 per-block | 更激进：**NoPE 部分用 UE8M0 FP8（block=64）**，**indexer 的 Q 用 MXFP4**；KV cache 有 **NVFP4 版本（352 B/token）** |
+
+`数字·` V4 kernel 里写死的维度（`fused_deepseek_v4_qnorm_rope_kv_insert_kernel.cu` 头部注释）：
+**`HEAD_DIM = 512`、`ROPE_DIM = 64`、`NOPE_DIM = 448`、`QUANT_BLOCK = 64`**、
+`FP8_MAX = 224.0f`（ROCm FNUZ）/ **`448.0f`（OCP）**、**`is_neox=false`（GPT-J 交错对）**。
+路由侧：`dsv4_topk.py` 的快速路径写死 **`_TOPK = 6`**，且带 **`correction_bias`**（无辅助损失的偏置纠正）；
+打分函数是 **`Sqrt(Softplus(·))`**（`topk_softplus_sqrt_kernels.cu`）。
+MoE 侧：**V4 走 DeepGEMM 的 MegaMoE kernel**，vLLM 只写 Triton 的 **input-staging**（量化成 FP8 + **E8M0 group scale**，并把 top-k 重排成 DeepGEMM 要的 **int64/float32 布局**）。
+
+`坑·` ① 把 V3 与 V4 的维度混着引用（**V3 的 `qk_nope_head_dim` 是 128，V4 这里是 512/64/448 的组合**，不是同一个东西）；
+② 说"V4 还是 MLA" —— **MLA 的主干还在（`sparse_mla.py`），但外面套了压缩 + indexer + 稀疏**；
+③ 不知道 **`fused_inv_rope` 为什么要"逆" RoPE** —— 这是 **MLA 吸收技巧的工程后果**：
+上投影被吸进 Q/O 之后，K 侧要"还原"出可以被吸收的形式，所以要先逆旋转再量化（对照 §10 Q226 的吸收态）。
+
+---
+
+**Q266 `[hard]` ★ 线性注意力的 kernel 难在哪？KDA 的 chunkwise 四种形态是什么？**
+
+`答·` **难点是"它是个递推，而 GPU 最不擅长的就是递推"** ——
+`S_t = f(S_{t-1})` 天然串行，直接实现**只能一个 token 一个 token 算**，
+完全吃不到 GPU 的并行度，而且**每步都要读写整个状态矩阵**（`d_k × d_v`，比 KV cache 大得多）。
+
+**解法就是 chunkwise（分块并行）**：把序列切成 C 大小的块，
+**块内**用并行的矩阵运算、**块间**才做递推（还要传一个 chunk 级的中间状态）。
+
+Kimi-K3 在 vLLM 里的实现**正好是四个 kernel**（`models/kimi_k3/{nvidia,amd}/ops/third_party/kda/`）：
+
+| Kernel | 用途 |
+|---|---|
+| `chunk.py` | 块级主流程（块间递推 + 块内并行） |
+| `chunk_intra.py` | **块内**计算 |
+| `chunk_intra_token_parallel.py` | 块内计算再按 token 并行切一档（换并行度/寄存器压力） |
+| `fused_recurrent.py` | **纯递推**，给小 batch / decode 用（此时并行度本来就低） |
+
+**这就是线性注意力 kernel 的通用套路**：
+**prefill 用 chunk 并行、decode 用 recurrent**；两种形态同时存在，按形状选。
+
+`数字·` KDA decode kernel 的常量（`fused_kda_decode_kernel.cu`）：
+**`kDimK = kDimV = 128`**、**短卷积宽度 `kKernelWidth = 4`**（所以卷积状态宽度 `3`）、
+**256 线程（8 warp）**、`kChunkV = 32`、`kNumChunks = 4`、`kRowsPerWarp = 4`。
+**最关键的一条数字是「crossover」**：`fla` 官方在 **GB200** 上的 bench 显示，
+**`chunk_gdn` 在 `T=8192` 时 1.265 ms，对 `flash_attn` 的 3.753 ms 是 3× 快**；
+**但在 `T=2048` 时反过来：0.753 ms vs 0.346 ms，慢一倍多。**
+⇒ **线性注意力只在序列足够长时才赢** —— 这解释了为什么它的 kernel 必须**同时**准备
+chunk 并行版和 recurrent 版：**短序列上 dense attention 本来就更快。**
+另有 **`FlashKDA`** 作为注册的 torch op（`csrc/flashkda_registration.cpp`），
+签名里有 **`initial_state / final_state / checkpoint_state / checkpoint_offsets`** ——
+**"状态检查点"是线性注意力独有的东西**（KV cache 可以任意切块复用，递推状态不行）。
+
+`坑·` ① 说"线性注意力的 kernel 就是一个 scan" —— **纯 scan 在 GPU 上慢得没法用**，关键是 chunkwise；
+② 不知道 **同一个模型要同时准备 chunk 版和 recurrent 版两份 kernel**；
+③ 忘了对应关系：**线性注意力的"状态"= KV cache 的等价物**，所以
+**显存管理、prefix caching、投机解码全都要重写**（这就引出 Q267）。
+
+---
+
+**Q267 `[hard]` ★ SSM / 线性注意力 + 投机解码：为什么需要 RecoverSSM？**
+
+`答·` **因为"接受一部分 draft token"这件事，在递推模型上不可逆。**
+
+推理链是这样的：
+
+```
+投机解码：draft 出 k 个 token → 目标模型一次验证 → 接受了前 j 个（j 可能 < k）
+问题：验证时你为了算 logits，已经把状态推进到第 k 步了
+现在要回滚到第 j 步的状态 —— 但 S_t = f(S_{t-1}) 只给了你"往前"，没给"往回"
+```
+
+**KV cache 可以回滚**：把 block table 一截就行（这就是 PagedAttention 的便宜之处）。
+**线性注意力的状态不能截**：它已经被 k−j 个多余 token 污染了。
+
+**做法有两条**（vLLM 里都能看到）：
+
+| 做法 | 代价 |
+|---|---|
+| ① **保存中间 checkpoint**（KDA 的 `checkpoint_state` / `checkpoint_offsets`） | 显存换可逆性；checkpoint 太密就失去线性注意力的省显存优势 |
+| ② **重算被接受的那一段**（`recoverssm.py`：**accepted-state recovery**） | 算力换显存；只在"接受了一部分"时才付这个代价 |
+
+`数字·` vLLM 里这个模块叫 **`RecoverSSM`**（`models/kimi_k3/nvidia/ops/recoverssm.py`），
+注释写的是 *"speculative verify and accepted-state recovery"*，
+用 **Triton** 实现，还复用了 `mamba_utils.is_conv_state_dim_first`（因为**短卷积的状态也要一起恢复**，
+K3 的卷积宽度是 **4**，所以**要回滚 3 个 token 的卷积窗口**）。
+
+`坑·` ① 完全不知道有这个问题（**这是"线性注意力上生产"最容易被忽略的一环**）；
+② 只说"回滚状态"却不知道**短卷积状态也在里面**；
+③ 反过来把它说成"只影响投机解码" —— **前缀缓存（prefix caching）同样受影响**：
+KV cache 能按块共享前缀，递推状态**默认不行**（除非实现专门支持状态检查点）。
+
+---
+
+**Q268 `[hard]` ★ 通算融合在 kernel 层面长什么样？**
+
+`答·` §5.3 讲的 DBO 是**调度层**的重叠（两个 stream 交替）。
+**这一代的变化是：把通信指令直接写进计算 kernel 里**。vLLM 代码里能看到三种典型：
+
+| 形态 | Kernel | 干了什么 |
+|---|---|---|
+| ① **GEMM + reduce-scatter + all-reduce** | `gemm_rs_ar.py`（Kimi-K3，SM100/BF16，CuTeDSL） | GEMM 算完**直接在 epilogue 里做 TP 的 RS/AR**，基于 **CUTLASS 的 Blackwell distributed GEMM-RS 例子**，用 **`torch.distributed._symmetric_memory`** 拿到对端指针 |
+| ② **AllReduce + RMSNorm + ReduceScatter（early exit）** | `allreduce_rmsnorm_reduce_scatter_early_exit.py` | 从 **FlashInfer 的 `oneshotAllreduceFusionKernel`** 特化；**CTA 分工 + ReduceScatter 提前退出** |
+| ③ **fused add + multicast GEMM** | `fused_add_multicast_gemm.py` / `..._skinny_gemm.py` | 用 **NVLink multicast** 把激活**一次性广播**进 GEMM 的加载阶段（等价于把 all-gather 藏进 load） |
+
+**共同前提**：**对称内存**（`torch.distributed._symmetric_memory` / NCCL window / NVSHMEM）。
+没有它，kernel 拿不到对端显存地址，就没法"一边算一边写别人家"。
+
+`数字·` 为什么值得这么做 —— 回到 α-β 模型（§5.2 Q140）：
+**这些融合消掉的是"通信次数"和"kernel launch 次数"，不是通信字节数。**
+TP 的 all-reduce 在 decode 时是**小消息**（`hidden × 2` 字节量级），α 主导；
+把它融进 GEMM 的 epilogue，**消掉的是 α 和一次 launch**，这正是小消息场景的收益来源。
+
+`坑·` ① 把这一类说成"减少了通信量" —— **字节数一个都没少**，少的是**次数、launch 和同步点**；
+② 不知道它对**对称内存**的硬依赖；
+③ 与 DBO 混淆：**DBO 是调度层重叠（两个 kernel 时间上交叠），这类融合是空间上的合并（一个 kernel 里既算又通）**。
+**两者可以叠加，但不是一回事。**
+
+---
+
+**Q269 `[进阶]` ★ 量化 kernel 为什么会有这么多后端？工程上怎么选？**
+
+`答·` 因为**"格式 × 粒度 × 硬件代际 × 厂商"是四个独立维度**，组合出来必然爆炸。
+vLLM 的目录结构就是这四个维度的直方图：
+
+```
+kernels/linear/
+├── nvfp4/        cutlass  flashinfer  marlin  humming  fbgemm  b12x  emulation
+├── mxfp4/        aiter  b12x  emulation  flashinfer  humming  marlin  xpu
+├── mxfp8/        b12x  emulation  flashinfer  humming  marlin  rocm_native  xpu
+├── mxfp6/        base  emulation
+├── scaled_mm/    aiter  b12x  cpu  cutlass  deep_gemm  flashinfer  humming
+│                 marlin  pytorch  rocm  triton  xpu  zentorch
+└── mixed_precision/  marlin  machete  conch  exllama  humming  allspark
+                      triton_w4a16  dynamic_4bit  cpu  xpu  zentorch  rdna3_w4a16 ...
+```
+
+**选择的实际顺序**（推理时的判据）：
+
+```
+① 硬件是什么？        SM90 → Machete / Marlin；SM100 → NVFP4 + CUTLASS/FlashInfer；
+                      SM120 → b12x；ROCm → AITER；XPU → xpu 后端
+② 权重是什么格式？    NVFP4 / MXFP4 / MXFP8 / INT4 / W4A8 …
+③ 粒度是什么？        per-tensor / per-channel / per-group(128) / per-block
+④ 形状是什么？        prefill（大 M）vs decode（M=1）用的 kernel 完全不同
+⑤ 有没有厂商库？      有就优先（FlashInfer / AITER / DeepGEMM），没有才回落到 triton/emulation
+```
+
+`数字·` **`emulation` 的存在本身就是答案**：
+`mxfp4/emulation.py`、`mxfp8/emulation.py`、`nvfp4/emulation.py`、`mxfp6/emulation.py` ——
+**当硬件不支持该格式时，vLLM 用 kernel 把低精度"模拟"出来**（反量化后走 BF16/FP16 计算）。
+**这是"格式先行、硬件跟上"的典型工程妥协**：模型已经用 MXFP4 发布了，但你的卡不支持 →
+你要么不能跑，要么**慢一点但能跑**。
+
+`坑·` ① 说"量化 kernel 就是反量化 + GEMM"（那是最慢的 emulation 路径）；
+② 不知道 **同一格式在不同架构上要用不同 kernel**（所以 `scaled_mm_blockwise_sm90/sm100/sm120_fp8.cu` 是三个文件）；
+③ 忘了 **decode 和 prefill 要选不同的 kernel**（M=1 时 GEMM 退化成 GEMV，走的可能是完全另一条路，见 Q270）。
+
+---
+
+**Q270 `[进阶]` ★ 一个 decode 的 GEMM 该选哪个 kernel？**
+
+`答·` **不是"选一个最好的"，而是"按形状查表"** —— vLLM 里已经把这件事实作化了。
+
+`models/kimi_k3/nvidia/low_latency_gemm.py` 的注释把设计讲得很清楚（原文要点）：
+
+- **`(N, K)` 形状 + token 数 `M`** 决定走哪个 kernel，**模块名不参与决策**（*"Dispatch is purely by local `(N, K)` shape and token count `M` — the module name plays no role"*）；
+- 每个测过的形状映射到一个 `ProjectionSpec`，里面存**每个 token 数档位的获胜后端**；
+- **静态部分在 install 时解析成 `{M: call}` 的 plan，前向路径只剩一次 dict 查表**；
+- **表是按硬件分别测的，而且不能合并**：`KIMI_K3_PROJECTIONS` 在 **B300（SM103）** 上调，
+  `..._SM100` 在 **B200（SM100）**，`..._SM90` 在 **H200（SM90）**；
+  源码明确写 *"The per-(shape, M) winners genuinely differ between the parts, so the tables must not be merged"*；
+  **SM107（Rubin）复用 SM103 的表**（已端到端验证过）。
+
+`数字·` 这条注释里能直接引用的硬件代号：**SM90 = H200、SM100 = B200、SM103 = B300、SM107 = Rubin**。
+
+**为什么解码 GEMM 要专门搞一套**：M=1（或很小）时 GEMM 退化成 **GEMV / skinny GEMM**，
+**算术强度 ≈ 0.5，纯 memory-bound**（§3.3 Q73）——
+这时 tensor core 的利用率不是瓶颈，**瓶颈是权重搬运和 kernel 固定开销**。
+所以出现了专门的 skinny / low-latency 实现：
+`kernels/linear/cute_dsl/_skinny_gemm.py`、`_ll_bf16_dotprod.py`、`_ll_bf16_splitk.py`
+（**"ll" = low latency；dotprod 和 splitk 是两个不同的切分策略**），
+以及 K3 的 `kda_skinny_gemm.py`。
+
+`坑·` ① 说"用 cuBLAS 就行" —— **decode 的 skinny GEMM 是 cuBLAS 不擅长的形状**；
+② 想说"选最快的 kernel"却说不出**判据是 (N,K,M) 三元组**；
+③ 不知道**同一份 kernel 在不同芯片上的排名会翻转**（所以表不能合并）——
+**这一条几乎是"真的跑过 benchmark"的证明**。
+
+---
+
 ## 附：本库的边界与维护说明
 
 | 项 | 说明 |
@@ -7588,7 +8404,7 @@ arXiv 2507.20534（K2）/ 2510.26692（Kimi Linear）/ 2501.08313（MiniMax-01�
 | **JD 与面经的来源** | JD 来自公开招聘页与第三方转载（**字节等公司的招聘页是 SPA，正文抓不到**）；面经来自牛客 / GitHub 面经仓库 / 知乎等 |
 | **没有覆盖的** | CUDA 语法入门（thread/block/grid 的基础用法）、cuBLAS/CUTLASS 的 API 用法、Triton 语法、Nsight 的 GUI 操作、K8s/调度器运维、以及各家**未公开**的面试题库 |
 | **手撕题（§7）的写法** | 给的是**能默写的骨架 + 关键点 + 怎么测**，不是可直接编译的完整工程。**面试前务必自己敲一遍并用 `nvcc` 跑通** —— 手撕题的唯一准备方式就是手写 |
-| **题量与结构** | 共 **255 题 / 9 个分区**。§2（55）+ §3（36）+ §4（40）+ §5（29）= **概念题主体**；**§7（15 道手撕 kernel）** 是唯一的动手题；§6（15）是方法论；§8（10 道设计）+ §9（25）+ **§10（30 道 SOTA 模型架构）** 是补充分散考点。**不含 LeetCode 算法题** |
+| **题量与结构** | 共 **270 题 / 11 个分区**。§2（55）+ §3（36）+ §4（40）+ §5（29）= **概念题主体**；**§7（15 道手撕 kernel）** 是唯一的动手题；§6（15）是方法论；§8（10 道设计）+ §9（25）+ **§10（30 道 SOTA 模型架构）** + **§11（7 道并行策略深挖）** + **§12（8 道 SOTA 算子）** 是补充分散考点。**不含 LeetCode 算法题** |
 | **怎么维护** | 代码与版本都会变。引用 vLLM 的地方，先跑 `python code/verify_citations.py`（应输出 `63/63`）；改动过本题库后，跑 `python code/check_diagrams.py`、`python code/check_appendix_cuda_numbers.py`，再跑 `python code/export_pdf.py` 重新导出 PDF |
 
 **最后一条建议**（来自真实面经最有价值的一条）：

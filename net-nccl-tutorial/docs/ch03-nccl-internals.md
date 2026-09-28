@@ -436,8 +436,22 @@ NCCL 支持多种传输，vLLM 的代码里能间接看到它们的影子：
 | 对称内存的完整支持 | **≥ 2.27.3**（raw 版本 `22703`） | `pynccl_allocator.py:166-168` |
 | `ncclCommSuspend` / `ncclCommResume` | **≥ 2.29.7** | `pynccl.py:557-563` 的 `warning_once` 文案 |
 | `ncclCommQueryProperties` | **≥ 2.29**（更老版本是可选的） | `pynccl_wrapper.py:424-426` |
-| DeepEP v2（GIN 路径） | **≥ 2.30.4**（raw `23004`） | `vllm/utils/import_utils.py:456` `DEEPEP_V2_MIN_NCCL_VERSION_RAW = 23004` |
+| **Device API**（`ncclGetLsaPointer` / `ncclGetLocalPointer`） | **≥ 2.28.3** | 官方 release notes |
+| GIN（GPU-Initiated Networking）**特性本身** | **≥ 2.28.7**（官方 release notes） | 见下面的说明 |
+| host 侧单边 RMA（`ncclPutSignal` / `ncclSignal` / `ncclWaitSignal`） | **≥ 2.29.2** | 官方 release notes |
+| CFT | **≥ 2.31** | 官方 release notes；当前版本 2.32.3 |
+| vLLM 走 GIN 的入口：DeepEP v2 | **≥ 2.30.4**（raw `23004`） | `vllm/utils/import_utils.py:456` `DEEPEP_V2_MIN_NCCL_VERSION_RAW = 23004` |
 | vLLM 声明的结构体布局 | **2.31.2** | `pynccl_wrapper.py:63` `NCCL_COMM_PROPERTIES_LAYOUT_VERSION = 23102` |
+
+> **⚠️ 两个必须分清的版本号**：**GIN 这个特性在 NCCL 2.28.7 就有了**，
+> 但 **DeepEP v2 要求 ≥ 2.30.4**（并且要 IBGDA 网卡）。
+> 面试里把两者混成「GIN 需要 2.30.4」是常见错误。
+>
+> **另一条同源结论**：**vLLM 自己并不使用 device 侧的 NCCL 调用** ——
+> 它只做 host 侧的对称内存（这条路径的版本门槛就是 2.27.3，且 `win_flags` 是硬编码的）。
+> **GIN 进入 vLLM 的唯一入口是 `deepep_v2` 后端。**
+> 这一点也和 ch03 §3.7 里那段 `query_nccl_gin_type()` 的用途一致：
+> vLLM 查 GIN 支持情况，**是为了判断能不能开 `deepep_v2`**，而不是自己用 GIN。
 
 **注意一个真实的坑**：PyTorch 自带的 NCCL 往往比最新版旧。所以
 `docs/serving/expert_parallel_deployment.md` 明确写了：

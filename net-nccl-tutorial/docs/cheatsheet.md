@@ -49,7 +49,10 @@ ncclGroupStart/End = 批量并发下发（vLLM 用它拼变长 all-gather）
 版本要求：
   window register (对称内存) ≥ 2.27.03
   ncclCommSuspend/Resume     ≥ 2.29.7
-  对称内存完整支持            ≥ 2.27.3 (22703)
+  对称内存 window API         ≥ 2.27.3 (22703)
+  NCCL Device API           ≥ 2.28.3
+  GIN 特性本身               ≥ 2.28.7
+  host 单边 RMA              ≥ 2.29.2
   DeepEP v2 (GIN)            ≥ 2.30.4 (23004)
   vLLM 声明的结构体布局       = 2.31.2 (23102)
 ```

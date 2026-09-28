@@ -73,6 +73,9 @@ class SymmBuffer:
 **三个关键事实**：
 
 1. **用的是 `torch.distributed._symmetric_memory`** —— 和 ch03 §3.5 讲的对称内存**是同一套东西**。
+   ⚠️ **但要分清层次**：对称内存在这里**只是「地址空间」的准备工作**（把对端指针拿到手）。
+   **MegaMoE 的 kernel 内部并不调用 NCCL** —— 在 DeepGEMM 的 megakernel 目录上 `grep -i nccl` 是 **0 命中**；通信靠 kernel **直接读写对端指针**完成。
+   **这正是「megakernel」与「调库」的本质区别**：它需要对称内存的前置准备，却不需要 NCCL 的 device API。
    `symm_mem.rendezvous(buffer, group)` 取到的是**所有 rank 的对端指针**。
 2. **`group.size() == 1` 时退化为本地 buffer** ——
    单卡也能跑（只是没有跨 rank 通信），所以代码路径不用分叉太多。
@@ -328,6 +331,8 @@ sequenceDiagram
 | **`shared_x_sf` 与 `shared_block_m` 必须同时给** | 同上 | |
 | **`shared_x_sf` 行数要够** | 同上（`required_rows` 计算） | 按 `shared_block_m` 向上 128 对齐 |
 | **必须是 Blackwell** | `vllm/utils/flashinfer_moe_ep.py` 注释：*"Every mega kernel is Blackwell-only"* | 所有 mega kernel |
+| **专家权重是 FP4 系**（如 `mma_type='fp8xfp4'`） | `moe_backend="deep_gemm_mega_moe"` 的配置约束 | 与 SM100 的 FP4 MMA 路径绑定 |
+| **路由打分必须是 `sqrtsoftplus`** | 同上（routing 约束） | 换别的打分函数就用不了 megakernel |
 | **EPLB + NCCL communicator 时要设 `NCCL_MAX_CTAS`** | `vllm/distributed/eplb/eplb_utils.py` 的 `override_envs_for_eplb()` | 否则可能死锁 |
 | **capture 必须早于 EPLB** | `tests/models/test_deepseek_v4_mega_moe.py:55`（`test_deep_gemm_mega_moe_capture_precedes_eplb`） | **测试名字本身就在描述一个顺序约束** |
 | **共享专家不能重复加** | 同上（`test_..._does_not_double_add_fused_shared_expert`） | 融合 shared expert 时的正确性风险 |
