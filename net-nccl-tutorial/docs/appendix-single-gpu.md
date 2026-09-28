@@ -91,6 +91,15 @@ ch01–ch08 就是主战场，附录 E 只要会「解释清楚 A1/A2/A3 的动�
 | OS 概念 | vLLM 对应 | 解决什么 |
 |---|---|---|
 | 页（page） | **block**（默认 16 个 token 一组） | 细粒度分配，消除内部碎片 |
+
+![PagedAttention：逻辑块表 → 物理块，逻辑连续、物理可以不连续](../figures/external/vllm_block_table.svg)
+
+*图源：Kwon et al., *Efficient Memory Management for Large Language Model Serving with PagedAttention*（SOSP 2023），[arXiv:2309.06180](https://arxiv.org/abs/2309.06180)，**CC BY 4.0**。**这是这道题的原图** —— 左边是每个请求的**逻辑块表**，右边是 GPU 上的**物理块池**；注意 A 和 B 的逻辑块 1、2 指向**同一批物理块**，这就是下一节要讲的共享机制。*
+
+![PagedAttention 的分块注意力计算：KV 被切成块，注意力按块累加](../figures/external/vllm_pagedattention.svg)
+
+*图源：同上，[arXiv:2309.06180](https://arxiv.org/abs/2309.06180)，**CC BY 4.0**。**这张图回答的是「分页之后注意力怎么算」**：KV 不连续，但注意力可以**逐块累加**（因为 softmax 可以在线合并 —— 见 E.2 的 online softmax）。**两张图合起来才是 PagedAttention 的完整答案**：分页解决「显存放得下」，分块注意力解决「放得下之后还能算对」。*
+
 | 页表（page table） | **block table**（逻辑块 → 物理块） | 逻辑连续、物理可不连续 → 消除外部碎片 |
 | 写时复制（COW） | 共享前缀的 block，写时才复制 | 多个请求共享 prompt 的 KV |
 | 按需分页 | 按需分配 block（用多少给多少） | 不预分配 max_len |
@@ -159,6 +168,11 @@ flowchart LR
 
 **标准 attention 的显存问题**：`S = QKᵀ` 是 `[seq, seq]`，
 seq=8192 时 fp16 需要 `8192×8192×2 = 128 MB`（**每个 head**）。
+
+![FlashAttention-3 的 2-stage 软件流水：GEMM 与 softmax 在 warp 间重叠](../figures/external/fa3_pipelining.png)
+
+*图源：Shah et al., *FlashAttention-3: Fast and Accurate Attention with Asynchrony and Low-precision*（2024），[arXiv:2407.08608](https://arxiv.org/abs/2407.08608)，**CC BY 4.0**。**⚠️ 说明**：FlashAttention-1/2 论文的经典 tiling 图**不可复用**（arXiv 非独占许可），所以这里放的是 FA3 的流水图；**「tiling + online softmax」的原理图见 §E.2 的自绘图**。这张图要说的只有一件事：**GEMM 和 softmax 用的是不同的硬件单元，所以能重叠。***
+
 必须写回 HBM 再读出来做 softmax —— **HBM 带宽成为瓶颈**。
 
 **FlashAttention 的做法（tiling + online softmax）**：
@@ -225,20 +239,6 @@ vLLM 把 attention 做成**可插拔后端**（`vllm/v1/attention/backends/`）�
 
 **Continuous batching（inflight batching）**：**每个 decode step 都重新组 batch** ——
 A 算完立刻腾出位置给新请求 D。
-
-```mermaid
-flowchart LR
-    subgraph SB["Static batching"]
-        direction TB
-        x1["batch 固定<br/>等最慢的"] --> x2["GPU 利用率低<br/>（图中 A/B 的空等）"]
-    end
-    subgraph CB["Continuous batching"]
-        direction TB
-        y1["每一步重新组 batch<br/>完成的请求立刻让位"] --> y2["GPU 利用率高<br/>吞吐显著提升"]
-    end
-    style SB fill:#fdecea,stroke:#c0392b
-    style CB fill:#eaf7ee,stroke:#2d7a3e,stroke-width:2px
-```
 
 **面试必答的数字感**：continuous batching 相比 static batching 常能带来
 **数倍的吞吐提升**（在输出长度方差大的真实负载下）。**这是推理引擎最核心的一层优化。**
@@ -401,6 +401,11 @@ ch07 §7.3.3 的 DBO 准入清单里有一条：
 不缓存就要把相同的前缀重新算一遍 prefill。
 
 **做法**：**用 block 的 hash 做键，缓存已经算好的 block**。
+
+![多序列共享物理块：不同请求的逻辑块指向同一物理块](../figures/external/vllm_block_sharing.svg)
+
+*图源：同上，[arXiv:2309.06180](https://arxiv.org/abs/2309.06180)，**CC BY 4.0**。**prefix caching 与并行采样（parallel sampling）本质是同一张图** —— 差别只在「共享的是前缀」还是「共享的是整段 prompt」。*
+
 命中就直接复用那些 block，跳过对应的 prefill 计算。
 
 **和 PagedAttention 的关系**：**同一套基础机制**。

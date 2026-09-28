@@ -220,6 +220,27 @@ img.mermaid {
   page-break-inside: avoid;
 }
 
+/* ---- figures pulled in from papers / Wikimedia / textbooks ---- */
+img:not(.mermaid) {
+  display: block;
+  margin: .9em auto .3em;
+  max-width: 100%;
+  max-height: 165mm;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: #fff;
+  break-inside: avoid-page;
+  page-break-inside: avoid;
+}
+p.figcap {
+  text-align: center;
+  color: var(--muted);
+  font-size: .8em;
+  line-height: 1.45;
+  margin: 0 0 1em;
+  break-before: avoid-page;
+}
+
 /* ---- title block (injected) ---- */
 .title-block {
   border-bottom: 3px solid var(--accent);
@@ -450,26 +471,32 @@ def pdf_heading_pages(pdf_path: Path, headings: list[tuple[int, str, str]]) -> d
     hi = 0
     for lvl, anchor, title in headings:
         target = norm(title)
-        acc, page = "", None
-        while hi < len(hits):
+        acc, page, skipped = "", None, 0
+        # Embedded SVG figures put their own labels into the PDF text layer, and
+        # some land at h3 size — so skip anything that is not a prefix of the
+        # heading we are looking for, and accept only an exact full match.
+        while hi < len(hits) and skipped < 60:
             hp, hl, ht = hits[hi]
             if hl != lvl:
                 hi += 1
+                skipped += 1
                 continue
             combined = acc + norm(ht)
-            if not target.startswith(combined):
-                break
-            if page is None:
-                page = hp
-            elif hp != page:
-                break
-            acc, hi = combined, hi + 1
-            if acc == target:
-                break
-        if acc and page is not None and (acc == target or target.startswith(acc)):
+            if acc and page is not None and hp != page:
+                break                      # a wrapped heading never spans pages
+            if target.startswith(combined):
+                if page is None:
+                    page = hp
+                acc, hi, skipped = combined, hi + 1, 0
+                if acc == target:
+                    break
+            elif acc:
+                break                      # matched, then diverged: give up
+            else:
+                hi += 1                    # pure noise before the heading
+                skipped += 1
+        if acc == target and page is not None:
             pages[anchor] = page
-        elif acc == "":
-            hi += 1  # orphan PDF line: skip it so later headings are not stuck
 
     if len(pages) != len(headings):
         missing = [t for _, a, t in headings if a not in pages][:3]
@@ -492,6 +519,39 @@ HTML_SHELL = """<!DOCTYPE html>
 """
 
 
+IMG_SRC_RX = re.compile(r'(<img\b[^>]*?\bsrc=")([^"]+)(")')
+MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp"}
+
+
+def inline_local_images(html_body: str, base: Path) -> tuple[str, int, list[str]]:
+    """Turn ``<img src="relative/path">`` into a data URI.
+
+    The intermediate HTML lives in a temp dir, so a relative path would never
+    resolve at print time. Inlining also means the PDF is self-contained.
+    """
+    n, missing = 0, []
+
+    def repl(m: re.Match) -> str:
+        nonlocal n
+        src = m.group(2)
+        if src.startswith(("data:", "http://", "https://", "file:")):
+            return m.group(0)
+        path = (base / src).resolve()
+        if not path.exists():
+            missing.append(src)
+            return m.group(0)
+        mime = MIME.get(path.suffix.lower())
+        if mime is None:
+            missing.append(src)
+            return m.group(0)
+        b64 = base64.b64encode(path.read_bytes()).decode("ascii")
+        n += 1
+        return f'{m.group(1)}data:{mime};base64,{b64}{m.group(3)}'
+
+    return IMG_SRC_RX.sub(repl, html_body), n, missing
+
+
 def md_to_html(
     md_path: Path, workdir: Path, pages: dict[str, int] | None = None
 ) -> tuple[str, dict, list[tuple[int, str, str]]]:
@@ -512,6 +572,11 @@ def md_to_html(
 
     html_mod = markdown.Markdown(extensions=MD_EXTENSIONS, extension_configs=MD_EXT_CONFIGS)
     body = html_mod.convert(raw)
+    body, n_img, missing = inline_local_images(body, md_path.parent)
+    if n_img:
+        stats["images"] = n_img
+    for miss in missing:
+        print(f"  ! image not found (skipped): {miss}")
 
     headings = heading_list(body)
     toc = build_toc(headings, pages)

@@ -22,12 +22,31 @@
 | 规约分发 | reduce-scatter | `reduce_scatter_tensor(out, in)` | 先按 op 合并，再把结果**切成 N 份**分发 | 出 = 入 / N |
 | 全交换 | all-to-all | `all_to_all_single(out, in)` | 每个 rank 把自己切成的 N 份，第 i 份发给 rank i | 出 = 入 |
 
+
+![broadcast：root 的一份数据复制到所有 rank](../figures/external/coll_broadcast_collective_operation.png)
+
+*图源：[Broadcast (collective operation)](https://commons.wikimedia.org/wiki/File:Broadcast_(collective_operation))，RenderFlamingo，Wikimedia Commons，**CC BY-SA 4.0**（ShareAlike：若对外分发本 PDF 请注意许可传染）。*
+
+![all-reduce：所有 rank 的数据先合并，结果再发给所有 rank（= reduce-scatter + all-gather）](../figures/external/coll_all_reduce.png)
+
+*图源：[All-Reduce](https://commons.wikimedia.org/wiki/File:All-Reduce)，RenderFlamingo，Wikimedia Commons，**CC BY-SA 4.0**（ShareAlike：若对外分发本 PDF 请注意许可传染）。**这张是整个教程最该记住的一张** —— TP 每层两次的通信、数据并行的梯度求和、ZeRO 的 reduce-scatter + all-gather，全都是它的变形。*
+
+*图源：[Broadcast (collective operation)](https://commons.wikimedia.org/wiki/File:Broadcast_(collective_operation).png)，Wikimedia Commons，**CC BY-SA 4.0**。**为什么只放 broadcast 一张**：它是八个操作里语义最直白的一个；**其余七个都用「输入是否相同 / 输出是否相同」两个问题推**（就是上面那张表），比再贴七张图更快。*
+
 （上表 `N` = world size。）
 
 **最容易搞混的三对，面试高频：**
 
 1. **`reduce` vs `all-reduce`**：前者结果只落在 dst（省带宽），后者人人都有（贵但要用于 TP）。
+
+![reduce：所有 rank 的数据按 op 合并，结果只给 dst](../figures/external/coll_reduce.png)
+
+*图源：[Reduce](https://commons.wikimedia.org/wiki/File:Reduce.png)，RenderFlamingo，Wikimedia Commons，**CC BY-SA 4.0**。**与上面 all-reduce 那张对比看**：形状一样，只是**输出只落在一个 rank 上** —— 省下的是「再广播回去」那一半带宽。*
 2. **`scatter` vs `all-gather`**：互为逆操作；`reduce` + `scatter` ≈ `all-reduce` 的一种分解方式。
+
+![scatter：root 把切成 N 份的数据分给每个 rank](../figures/external/coll_scatter.png)
+
+*图源：[Scatter](https://commons.wikimedia.org/wiki/File:Scatter.png)，RenderFlamingo，Wikimedia Commons，**CC BY-SA 4.0**。**这是 §2.1 系列的最后一张** —— 把 broadcast / reduce / all-reduce / scatter 四张连起来看，剩下四个（gather / all-gather / reduce-scatter / all-to-all）都是它们的组合或逆操作。*
 3. **`all-gather` vs `all-to-all`**：这是**最大的一个坑**。
    - `all-gather`：**所有人拿到所有人的全部数据**（数据量 ×N）。
    - `all-to-all`：**每个人只拿到属于自己的那一份**（数据量不变，只是重新分布）。
@@ -299,6 +318,14 @@ rank3: [D0 D1 D2 D3]           rank3 收到: [A3 B3 C3 D3]
 → 因为 EP 的通信量由**路由稀疏性**决定（每 token 只去 topk 个专家），不随 EP size 线性增长；
 而 TP 的 all-reduce 是**全局**的，N 越大延迟项越大且每层两次。EP 的代价转移到「负载均衡」和
 「all-to-all 的跨机带宽」上，这两者更容易用工程手段（EPLB、DeepEP）解决。
+
+![all-to-all：每个 rank 把自己切成 N 份，第 i 份发给 rank i —— 数据量不变，只是重新分布](../figures/external/coll_all_to_all.png)
+
+*图源：[All-to-All](https://commons.wikimedia.org/wiki/File:All-to-All)，RenderFlamingo，Wikimedia Commons，**CC BY-SA 4.0**（ShareAlike：若对外分发本 PDF 请注意许可传染）。**对比上图（all-reduce）看**：all-reduce 的**每个人最终都拿到全部**，all-to-all 的**每个人只拿到自己那一份**。*
+
+![all-gather：每个人把自己那份发给所有人，结果人人都有全部数据（数据量 ×N）](../figures/external/coll_all_gather.png)
+
+*图源：[All-Gather](https://commons.wikimedia.org/wiki/File:All-Gather)，RenderFlamingo，Wikimedia Commons，**CC BY-SA 4.0**（ShareAlike：若对外分发本 PDF 请注意许可传染）。**这张和 all-to-all 是最容易搞混的一对** —— 区别是「拿到的是别人的全部，还是只有自己该拿的那一份」。*
 
 ---
 

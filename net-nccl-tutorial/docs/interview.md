@@ -572,6 +572,19 @@ TP 每层两次 all-reduce，几十层就是上百次同步，
 **Inf / NaN**（指数全 1；尾数全 0 是 Inf，非 0 是 NaN）。
 **subnormal 的意义是「渐进下溢」**：如果没有它，
 最小正规数以下的差值会突然变成 0，导致 `a − b != 0` 却 `a == b` 的荒谬结果。
+
+![IEEE 754 单精度 fp32：1 位符号 / 8 位指数 / 23 位尾数](../figures/external/fmt_fp32.svg)
+
+*图源：[IEEE 754 Single Floating Point Format](https://commons.wikimedia.org/wiki/File:IEEE_754_Single_Floating_Point_Format.svg)，Wikimedia Commons，**CC BY 3.0**。*
+
+![IEEE 754 半精度 fp16：1 / 5 / 10](../figures/external/fmt_fp16.svg)
+
+*图源：[IEEE 754r Half Floating Point Format](https://commons.wikimedia.org/wiki/File:IEEE_754r_Half_Floating_Point_Format.svg)，Wikimedia Commons，**CC BY-SA 3.0**。*
+
+![bfloat16：1 / 8 / 7 —— 指数位与 fp32 相同，所以 range 与 fp32 一致、精度更低](../figures/external/fmt_bfloat16.svg)
+
+*图源：[Bfloat16 format](https://commons.wikimedia.org/wiki/File:Bfloat16_format.svg)，Wikimedia Commons，**CC BY-SA 4.0**。**三张图对照看 `s / e / m` 的位数分配** —— 这就是 Q7 那道「fp16 与 bf16 差在哪」的全部答案：**bf16 用尾数换 range**（8 位指数 = fp32），**fp16 用 range 换精度**（10 位尾数）。*
+
 `数字·` fp32：**最小正规数 ≈ 1.18×10⁻³⁸，最小 subnormal ≈ 1.4×10⁻⁴⁵**。
 `坑·` **性能陷阱**：某些硬件处理 subnormal 会**陷入微码**（慢几百倍），
 所以很多 kernel 用 **FTZ（flush-to-zero）** 把它们当 0 ——
@@ -857,6 +870,11 @@ long-scoreboard / LG-throttle / MIO-throttle 分别放大 **3.25× / 2.74× / 1.
 `AI < AI*` → **memory-bound**；`AI > AI*` → **compute-bound**。
 `数字·` H100：FP16 TC `989/3.35 ≈ 295`，FP32 `67/3.35 ≈ 20`。
 原书测试机（PRO 5000）：**1344 GB/s / 66.9 TFLOPS / ridge ≈ 49.8 FLOP/Byte**。
+
+![Roofline 模型：横轴算术强度 AI（FLOP/Byte），纵轴性能；斜线是带宽上界，平台是算力上界](../figures/external/roofline_model.png)
+
+*图源：[Roofline model](https://commons.wikimedia.org/wiki/File:Roofline_model.png)，Wikimedia Commons，**CC0（公有领域奉献）**。**看图的一句话**：拐点 `AI*` 左右两侧是两种完全不同的优化问题 —— **左边优化访存（提高 AI 或换更宽的带宽），右边优化计算（用 Tensor Core、降精度）**。*
+
 
 **Q71 `[进阶]` ★ 写出 GEMM / GEMV / softmax 的算术强度。**
 
@@ -1333,6 +1351,11 @@ smooth-V 的 `vm` 在 finalize 处加回（softmax 权重和为 1 ⇒ 提出列�
 `答·` 数据都是 **e2m1**（±6，可表示值只有 `{0, ±0.5, ±1, ±1.5, ±2, ±3, ±4, ±6}`，
 **相对步长约 25%**）；差别在 **SF**：
 **NVFP4 用 ue4m3 / 16 元素块**，**MXFP4 用 ue8m0 / 32 元素块** ——
+
+![NVFP4 的数据布局：16 个连续的 FP4(e2m1) 元素共享一个 FP8(E4M3) scale](../figures/external/nvfp4_tensor.svg)
+
+*图源：*NVFP4* 相关论文，[arXiv:2509.25149](https://arxiv.org/abs/2509.25149)，**CC BY 4.0**。**这是 NVFP4 那一半**；MXFP4 的差别只有两个数字：**块从 16 变 32、scale 从 E4M3 变 E8M0** —— E8M0 是纯指数，**步长恒为 100%**，这就是 MXFP4 精度更低的全部原因。*
+
 **SF 的尾数位决定尺度精度**，MXFP4 的整数 SF 步长 100%，所以精度更低。
 **fp4 的收益「不是」MMA 吞吐** —— blockscale `mxf4nvf4` 的吞吐**只与 fp8 dense 相当**；
 **收益全在带宽：K/V/SF 的字节数减半以上。**
@@ -1623,6 +1646,11 @@ merge kernel 实测 **0.7849 ms / 1031.4 GB/s**（≈ 峰值 77%，搬 809.5 MB�
 `数字·` 所以实践是 **TP ≤ 8（一个 NVLink 域内）**，
 跨机靠 **PP / DP / EP**；**EP 的 all-to-all 虽然也跨机，但它是"整块数据搬运"
 而不是每层两次的细粒度同步**，带宽效率高得多。
+
+![Amdahl 定律：随处理器数量增加，加速比趋于 1/(1-p) 的渐近上限](../figures/external/amdahl.svg)
+
+*图源：[Amdahl's law](https://commons.wikimedia.org/wiki/File:AmdahlsLaw.svg)，Wikimedia Commons，**CC BY-SA 3.0**。**读法**：横轴并行度、纵轴加速比；串行占比 `1-p` 决定渐近上限。TP 跨机时 `1-p` 被 all-reduce 的同步开销抬高，曲线会提前压平 —— 这就是「扩展效率崩塌」的定量含义。*
+
 
 **Q134 `[进阶]` Sequence Parallel 提性能吗？**
 
@@ -6506,6 +6534,11 @@ HF3FS connector 的 metadata URL 读了不用（死配置）、
 
 `答·` 它压缩的是 **KV cache 的"存储维度"**，而不是序列长度。
 标准 MHA/GQA 要把每个 token 的 K、V 向量**物化**存下来；
+
+![DeepSeek-V2 总体架构：MLA 注意力 + DeepSeekMoE 前馈](../figures/external/dsv2_architecture.png)
+
+*图源：DeepSeek-AI, [DeepSeek-V2](https://github.com/deepseek-ai/DeepSeek-V2)（代码仓库 **MIT**；模型权重另有许可），技术报告 [arXiv:2405.04434](https://arxiv.org/abs/2405.04434)。**看图找两处**：① attention 里那条**细的** KV 通路（就是 MLA 的 latent）；② FFN 里被切成很多小块的专家（细粒度 + 共享专家）。*
+
 MLA 改成**只缓存一个低维隐向量 `c_KV`**，推理时再投影出 K、V：
 
 ```

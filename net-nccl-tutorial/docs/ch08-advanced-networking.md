@@ -39,6 +39,15 @@
 | **all-gather** | 每 rank 拿到**所有** token → 数据量 ×EP | 每个 rank 只需要**发给自己专家的** token，all-gather 让每个人都看全部 |
 | **all-to-all** | 只发给「持有目标专家」的 rank | ✅ 通信量与**路由分布**相关，不随 EP size 线性涨 |
 
+![DeepEP 的 normal（高吞吐）kernel：all-to-all 的 token 分发与回收](../figures/external/deepep_normal.png)
+
+*图源：DeepSeek-AI, [DeepEP](https://github.com/deepseek-ai/DeepEP)，**MIT**。这是**官方通信库自己的图**，比任何自绘图都权威。*
+
+![DeepEP 的 low-latency kernel：纯 RDMA，按需触发，不占 SM](../figures/external/deepep_low_latency.png)
+
+*图源：同上，**MIT**。**两张图的差别就是 decode 与 prefill 的差别**：normal 追求带宽（大 batch prefill），low-latency 追求延迟（decode 每步一小块）。对照 §8.1 的 `deepep_ht` / `deepep_ll` / `deepep_v2` 三个后端。*
+
+
 **一句话**：
 > **all-reduce / all-gather 的通信量由「参与者的数量」决定；
 > all-to-all 的通信量由「数据的去向」决定。**

@@ -1,0 +1,191 @@
+[
+  {
+    "file": "roofline_model.png",
+    "title": "Roofline model.png",
+    "license": "CC0",
+    "artist": "Mewtow",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:Roofline_model.png"
+  },
+  {
+    "file": "memory_hierarchy.svg",
+    "title": "ComputerMemoryHierarchy.svg",
+    "license": "Public domain",
+    "artist": "",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:ComputerMemoryHierarchy.svg"
+  },
+  {
+    "file": "fmt_fp32.svg",
+    "title": "IEEE 754 Single Floating Point Format.svg",
+    "license": "CC BY 3.0",
+    "artist": "DnetSvg",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:IEEE_754_Single_Floating_Point_Format.svg"
+  },
+  {
+    "file": "amdahl.svg",
+    "title": "AmdahlsLaw.svg",
+    "license": "CC BY-SA 3.0",
+    "artist": "Daniels220",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:AmdahlsLaw.svg"
+  },
+  {
+    "file": "fmt_fp16.svg",
+    "title": "IEEE 754r Half Floating Point Format.svg",
+    "license": "CC BY-SA 3.0",
+    "artist": "",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:IEEE_754r_Half_Floating_Point_Format.svg"
+  },
+  {
+    "file": "fmt_bfloat16.svg",
+    "title": "Bfloat16 format.svg",
+    "license": "CC BY-SA 4.0",
+    "artist": "",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:Bfloat16_format.svg"
+  },
+  {
+    "file": "hbm_section.png",
+    "title": "Simplyfied diagram of HBM section view.png",
+    "license": "CC BY-SA 4.0",
+    "artist": "",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:Simplyfied_diagram_of_HBM_section_view.png"
+  },
+  {
+    "file": "coll_broadcast_collective_operation.png",
+    "title": "Broadcast (collective operation).png",
+    "license": "CC BY-SA 4.0",
+    "artist": "RenderFlamingo",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:Broadcast_(collective_operation).png"
+  },
+  {
+    "file": "coll_all_reduce.png",
+    "title": "All-Reduce.png",
+    "license": "CC BY-SA 4.0",
+    "artist": "RenderFlamingo",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:All-Reduce.png"
+  },
+  {
+    "file": "coll_all_gather.png",
+    "title": "All-Gather.png",
+    "license": "CC BY-SA 4.0",
+    "artist": "RenderFlamingo",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:All-Gather.png"
+  },
+  {
+    "file": "coll_all_to_all.png",
+    "title": "All-to-All.png",
+    "license": "CC BY-SA 4.0",
+    "artist": "RenderFlamingo",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:All-to-All.png"
+  },
+  {
+    "file": "coll_reduce.png",
+    "title": "Reduce.png",
+    "license": "CC BY-SA 4.0",
+    "artist": "RenderFlamingo",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:Reduce.png"
+  },
+  {
+    "file": "coll_scatter.png",
+    "title": "Scatter.png",
+    "license": "CC BY-SA 4.0",
+    "artist": "RenderFlamingo",
+    "desc": "",
+    "url": "",
+    "page": "https://commons.wikimedia.org/wiki/File:Scatter.png"
+  },
+  {
+    "file": "vllm_block_table.svg",
+    "title": "vllm_block_table.svg",
+    "license": "CC BY 4.0",
+    "artist": "Kwon et al., Efficient Memory Management for LLM Serving with PagedAttention (SOSP'23)",
+    "desc": "Kwon et al., Efficient Memory Management for LLM Serving with PagedAttention (SOSP'23)",
+    "url": "https://arxiv.org/html/2309.06180v1/logical-and-physical-block-table.svg",
+    "page": "https://arxiv.org/abs/2309.06180"
+  },
+  {
+    "file": "vllm_pagedattention.svg",
+    "title": "vllm_pagedattention.svg",
+    "license": "CC BY 4.0",
+    "artist": "同上（PagedAttention 的 KV 分块与注意力计算）",
+    "desc": "同上（PagedAttention 的 KV 分块与注意力计算）",
+    "url": "https://arxiv.org/html/2309.06180v1/pagedattention.svg",
+    "page": "https://arxiv.org/abs/2309.06180"
+  },
+  {
+    "file": "vllm_block_sharing.svg",
+    "title": "vllm_block_sharing.svg",
+    "license": "CC BY 4.0",
+    "artist": "同上（多序列共享物理块 —— prefix caching 的原型）",
+    "desc": "同上（多序列共享物理块 —— prefix caching 的原型）",
+    "url": "https://arxiv.org/html/2309.06180v1/multi-sequence-block-mapping.svg",
+    "page": "https://arxiv.org/abs/2309.06180"
+  },
+  {
+    "file": "deepep_normal.png",
+    "title": "deepep_normal.png",
+    "license": "MIT",
+    "artist": "DeepSeek-AI, DeepEP（高吞吐 all-to-all kernel）",
+    "desc": "DeepSeek-AI, DeepEP（高吞吐 all-to-all kernel）",
+    "url": "https://raw.githubusercontent.com/deepseek-ai/DeepEP/main/figures/normal.png",
+    "page": "https://github.com/deepseek-ai/DeepEP"
+  },
+  {
+    "file": "deepep_low_latency.png",
+    "title": "deepep_low_latency.png",
+    "license": "MIT",
+    "artist": "DeepSeek-AI, DeepEP（低延迟 all-to-all kernel）",
+    "desc": "DeepSeek-AI, DeepEP（低延迟 all-to-all kernel）",
+    "url": "https://raw.githubusercontent.com/deepseek-ai/DeepEP/main/figures/low-latency.png",
+    "page": "https://github.com/deepseek-ai/DeepEP"
+  },
+  {
+    "file": "dsv2_architecture.png",
+    "title": "dsv2_architecture.png",
+    "license": "MIT",
+    "artist": "DeepSeek-AI, DeepSeek-V2（仓库 LICENSE-CODE 为 MIT；模型权重另许）",
+    "desc": "DeepSeek-AI, DeepSeek-V2（仓库 LICENSE-CODE 为 MIT；模型权重另许）",
+    "url": "https://raw.githubusercontent.com/deepseek-ai/DeepSeek-V2/main/figures/architecture.png",
+    "page": "https://github.com/deepseek-ai/DeepSeek-V2"
+  },
+  {
+    "file": "nvfp4_tensor.svg",
+    "title": "nvfp4_tensor.svg",
+    "license": "CC BY 4.0",
+    "artist": "NVFP4：16 个连续 FP4 元素共享一个 FP8(E4M3) scale",
+    "desc": "NVFP4：16 个连续 FP4 元素共享一个 FP8(E4M3) scale",
+    "url": "https://arxiv.org/html/2509.25149v2/fig_nvfp4_tensor.svg",
+    "page": "https://arxiv.org/abs/2509.25149"
+  },
+  {
+    "file": "fa3_pipelining.png",
+    "title": "fa3_pipelining.png",
+    "license": "CC BY 4.0",
+    "artist": "Shah et al., FlashAttention-3（2-stage 软件流水：GEMM 与 softmax 重叠）",
+    "desc": "Shah et al., FlashAttention-3（2-stage 软件流水：GEMM 与 softmax 重叠）",
+    "url": "https://arxiv.org/html/2407.08608v2/figs/2_stage_pipelining.png",
+    "page": "https://arxiv.org/abs/2407.08608"
+  }
+]

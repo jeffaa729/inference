@@ -45,6 +45,11 @@ NVIDIA 在 NVLink 上的宣传口径经常是「聚合」。例如 H100 的 NVLi
 
 ---
 
+
+![HBM 的剖面：多颗 DRAM die 垂直堆叠，经 TSV（硅通孔）与逻辑 die 相连](../figures/external/hbm_section.png)
+
+*图源：[Simplyfied diagram of HBM section view](https://commons.wikimedia.org/wiki/File:Simplyfied_diagram_of_HBM_section_view.png)，Wikimedia Commons，**CC BY-SA 4.0**。**为什么贴这张**：显存带宽不是「更快的内存颗粒」换来的，而是**极宽的位宽**（HBM3 单栈 1024 bit × 多栈）换来的 —— 这就是为什么 `GB/s` 这个量和**封装与走线**强绑定，而和「主频」关系没那么大。*
+
 ## 1.2 延迟的数量级（记住这张表，面试常问「大概多少」）
 
 以下为工程常见量级，用于估算，不是精确值（标注「经验值」的地方请按此理解）：
@@ -95,6 +100,11 @@ NVIDIA 在 NVLink 上的宣传口径经常是「聚合」。例如 H100 的 NVLi
 > 用 `check_figures.py` 验证图的合法性。
 
 ---
+
+
+![计算机存储层次：寄存器 / cache / 主存 / 外存，容量递增、延迟与单价递增](../figures/external/memory_hierarchy.svg)
+
+*图源：[ComputerMemoryHierarchy](https://commons.wikimedia.org/wiki/File:ComputerMemoryHierarchy.svg)，Wikimedia Commons，**公有领域**。**面试里这张图的用法**：把每一层的**容量与延迟量级**记住（§1.2 的表），然后把「GPU 的 HBM 相当于哪一层」「NVLink 相当于把哪一层变快」讲清楚 —— **分布式通信的本质就是把「主存/外存这一层」换成「cache 这一层」的带宽。***
 
 ## 1.3 术语地图：从物理层到应用层
 
