@@ -1,0 +1,16 @@
+# 这个目录里的产物全部不进版本库（约 540 MB）。
+# 仓库根还有一份更全的 net-nccl-tutorial/.gitignore；这份是为了让
+# code/tts/ 单独拷走时也能正常工作。
+
+# 虚拟环境
+.venv/
+__pycache__/
+*.py[cod]
+
+# 音频产物（build_audiobook.py）
+audio/
+*.m4b
+*.m4a
+
+# 视频产物（build_video.py）
+video/

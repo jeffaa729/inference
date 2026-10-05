@@ -1,0 +1,49 @@
+# ═══════════════════════════════════════════════════════════════════
+#  只有这三类进版本库：① 文档源码（docs/*.md） ② 脚本（code/）
+#  ③ 下载来的插图（figures/external/）与研究底稿（_*_ref/）
+#  其余全是生成物 —— 生成物一律忽略。
+# ═══════════════════════════════════════════════════════════════════
+
+# ── 题库打印版 ───────────────────────────────────────────────────
+# interview.pdf 由 code/export_pdf.py 从 docs/interview.md 生成，
+# README 里也写明「PDF 永远是源码的派生物，不会漂移」——
+# 所以它是纯产物。重新生成： python code/export_pdf.py
+docs/*.pdf
+docs/*.html
+
+# ── TTS / 音频 / 视频产物（全量约 540 MB）────────────────────────
+# 由 code/tts/build_audiobook.py 与 build_video.py 生成：
+#   audio/*.mp3  audio/samples/  audio/feed.xml  audio/*.m4b
+#   video/q*.mp4  video/*-all.mp4  video/ch0*.mp4  video/srt/  video/.work/
+code/tts/audio/
+code/tts/video/
+*.m4b
+*.m4a
+
+# ── 虚拟环境 ─────────────────────────────────────────────────────
+code/tts/.venv/
+.venv/
+venv/
+
+# ── 实验 / 临时产物 ──────────────────────────────────────────────
+# run_labs.py 的输出（allreduce_bench 的原始日志与图）
+results/
+*.tmp
+*.bak
+
+# ── Python ───────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── 编辑器 / 系统 ────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*~
+.idea/
+.vscode/
